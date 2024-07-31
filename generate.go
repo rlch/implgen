@@ -10,6 +10,7 @@ import (
 	"io"
 	"io/fs"
 	"path"
+	"sort"
 	"strconv"
 	"strings"
 	"text/template"
@@ -173,7 +174,7 @@ func (r Repository) QualifiedName() string {
 const generateMethodTemplate = `
   func (r *{{ .Repository.ImplName }}) {{ .Method.Ident }}({{ .Method.Params.ParamsSrc }}){{ pad .Method.Returns.ReturnsSrc }}{
   {{- if .Method.Params.HasCtx }}
-    ctx, span := otel.GetTracerProvider().Tracer("{{ .Repository.Package }}").Start(ctx, "{{ .Repository.Name }}.{{ .Method.Ident }}") //nolint:all
+    ctx, span := otel.GetTracerProvider().Tracer("{{ .Repository.Package }}").Start(ctx, "{{ .Repository.Name }}.{{ .Method.Ident }}")
     {{- if .Method.Returns.HasError }}
     defer func() {
       if err != nil {
@@ -186,6 +187,7 @@ const generateMethodTemplate = `
     {{- else }}
     defer span.End()
     {{- end }}
+    _ = ctx
   {{- else }}
     {{- if .Method.Returns.HasError }}
     defer func() {
@@ -314,7 +316,13 @@ package %s
 	}
 
 	// Add imports to src
-	requiredImports, err := collectImports(fsys, astFile, repositories...)
+	requiredImports, err := collectImports(
+		fsys,
+		astFile,
+		true,
+		false,
+		repositories...,
+	)
 	if err != nil {
 		return "", err
 	}
@@ -355,15 +363,116 @@ package %s
 			src.WriteString("\n" + methodImpl)
 		}
 	}
+	return formatImports(filepath, src.Bytes())
+}
 
-	formattedSrc, err := imports.Process(filepath, src.Bytes(), nil)
+var repositoryStubFileTemplate = `
+// DO NOT MODIFY
+// This file will be automatically regenerated based on the API.
+package {{ .Package }}
+{{ range .MockDirectives -}}
+//go:generate mockgen -source={{ .Src }} -destination={{ .Dst }}
+{{ end -}}
+
+{{ range .Imports }}
+import {{ .Name }} "{{ .Path }}"
+{{- end }}
+
+var Repositories = fx.Options(
+{{ range .Repositories -}}
+  {{ .ImplPackage }}.{{ .QualifyString "Options" }},
+{{ end -}}
+)
+`
+
+func generateRepositoryStubFile(
+	fsys fs.FS,
+	packagePath string,
+	repositories ...*RepositoryImpl,
+) (string, error) {
+	var templateData struct {
+		Package        string
+		Imports        []Import
+		Repositories   []*RepositoryImpl
+		MockDirectives []struct {
+			Src string
+			Dst string
+		}
+	}
+	sort.Slice(repositories, func(i, j int) bool {
+		a := repositories[i]
+		b := repositories[j]
+		if a.ImplPackage == b.ImplPackage {
+			if a.Ident == "Repository" {
+				return true
+			}
+			if b.Ident == "Repository" {
+				return false
+			}
+			return a.Ident < b.Ident
+		}
+		return a.ImplPackage < b.ImplPackage
+	})
+	mocked := map[string]bool{}
+	for _, repository := range repositories {
+		src := path.Join(repository.PackagePath, repository.Filename)
+		if _, done := mocked[src]; done {
+			continue
+		}
+		mocked[src] = true
+		dst := path.Join(repository.ImplPackagePath, "mocks", repository.Filename)
+		templateData.MockDirectives = append(templateData.MockDirectives, struct {
+			Src string
+			Dst string
+		}{
+			Src: src,
+			Dst: dst,
+		})
+	}
+
+	templateData.Repositories = repositories
+	pkgImport, pkgAlias, err := loadLocalPackage(fsys, nil, packagePath)
 	if err != nil {
 		return "", err
 	}
-	return string(formattedSrc), nil
+	if pkgAlias != "" {
+		templateData.Package = pkgAlias
+	} else {
+		templateData.Package = path.Base(pkgImport)
+	}
+	imports, err := collectImports(
+		fsys,
+		nil,
+		false,
+		true,
+		repositories...,
+	)
+	if err != nil {
+		return "", err
+	}
+	templateData.Imports = imports
+	tmpl, err := template.
+		New("repositoryStubFileTemplate").
+		Parse(repositoryStubFileTemplate)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse template: %w", err)
+	}
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, templateData); err != nil {
+		return "", fmt.Errorf("failed to execute template: %w", err)
+	}
+	return formatImports(
+		path.Join(packagePath, "repositories.go"),
+		buf.Bytes(),
+	)
 }
 
-func collectImports(fsys fs.FS, astFile *ast.File, repositories ...*RepositoryImpl) (allImports []Import, _ error) {
+func collectImports(
+	fsys fs.FS,
+	astFile *ast.File,
+	importAPI, importImpl bool,
+	repositories ...*RepositoryImpl,
+) (allImports []Import, _ error) {
 	usedImports := make(map[string]bool)
 	if astFile != nil {
 		for _, imp := range astFile.Imports {
@@ -371,22 +480,35 @@ func collectImports(fsys fs.FS, astFile *ast.File, repositories ...*RepositoryIm
 			usedImports[path] = true
 		}
 	}
-	apiPackagePath := repositories[0].PackagePath
-	apiImport, apiAlias, err := loadLocalPackage(fsys, astFile, apiPackagePath)
-	if err != nil {
-		return nil, err
+	allImports = append(allImports, Import{Name: "", Path: "go.uber.org/fx"})
+	if importAPI && importImpl {
+		return nil, errors.New("cannot import both API and implementation")
 	}
 	for _, repository := range repositories {
-		if apiAlias != "" {
-			repository.Package = apiAlias
+		var rPkgPath string
+		if importAPI {
+			rPkgPath = repository.PackagePath
 		} else {
-			repository.Package = path.Base(apiImport)
+			rPkgPath = repository.ImplPackagePath
 		}
+		rImport, rAlias, err := loadLocalPackage(
+			fsys,
+			astFile,
+			rPkgPath,
+		)
+		if err != nil {
+			return nil, err
+		}
+		// Check if there's a local package alias
+		if astFile != nil && rAlias != "" {
+			if importAPI {
+				repository.Package = rAlias
+			} else {
+				repository.ImplPackage = rAlias
+			}
+		}
+		allImports = append(allImports, Import{Name: rAlias, Path: rImport})
 	}
-	allImports = append(allImports,
-		Import{Name: apiAlias, Path: apiImport},
-		Import{Name: "", Path: "go.uber.org/fx"},
-	)
 	for _, repository := range repositories {
 		allImports = append(allImports, repository.Imports...)
 		for _, newMethod := range repository.NewMethods() {
@@ -410,4 +532,12 @@ func collectImports(fsys fs.FS, astFile *ast.File, repositories ...*RepositoryIm
 		}
 	}
 	return imports, nil
+}
+
+func formatImports(filename string, src []byte) (string, error) {
+	formattedSrc, err := imports.Process(filename, src, nil)
+	if err != nil {
+		return "", err
+	}
+	return string(formattedSrc), nil
 }

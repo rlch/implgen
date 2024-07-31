@@ -41,21 +41,25 @@ func crawlAPI(
 	return
 }
 
-func computeImplPackagePath(apiRoot, implRoot, apiPackagePath string) string {
+func computeImplPackagePath(apiRoot, implRoot, apiPackagePath string) (string, error) {
 	apiRoot = path.Clean(apiRoot)
 	implRoot = path.Clean(implRoot)
 	apiPackagePath = path.Clean(apiPackagePath)
-	implPackagePath := "."
-	for i, part := range strings.Split(apiPackagePath, "/") {
-		if i == 0 {
-			implPackagePath = path.Join(implPackagePath, implRoot)
-			if apiRoot != "." {
-				continue
+
+	implPackagePath := implRoot
+	apiPackageParts := strings.Split(apiPackagePath, "/")
+	apiRootParts := strings.Split(apiRoot, "/")
+	for i, part := range apiPackageParts {
+		if i < len(apiRootParts) && apiRoot != "." {
+			rootPart := apiRootParts[i]
+			if rootPart != part {
+				return "", errors.New("apiPackagePath is not nested under apiRoot")
 			}
+			continue
 		}
 		implPackagePath = path.Join(implPackagePath, part)
 	}
-	return implPackagePath
+	return implPackagePath, nil
 }
 
 var cachedModule string

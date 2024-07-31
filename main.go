@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path"
+	"runtime/debug"
 	"time"
 
 	"github.com/alecthomas/kong"
@@ -45,6 +46,9 @@ func main() {
 			"Failed to run implgen",
 			slog.Any("error", err),
 		)
+		if cli.Verbose {
+			debug.PrintStack()
+		}
 	}
 }
 
@@ -69,7 +73,7 @@ func run() error {
 			packageFiles,
 		)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to parse repositories in %s: %w", apiPackagePath, err)
 		}
 		if len(repos) == 0 {
 			continue
@@ -79,11 +83,18 @@ func run() error {
 			slog.String("api_path", apiPackagePath),
 			slog.Int("count", len(repos)),
 		)
-		implPackagePath := computeImplPackagePath(
-			path.Join(cli.Root, cli.API),
-			path.Join(cli.Root, cli.Impl),
+		implPackagePath, err := computeImplPackagePath(
+			cli.API,
+			cli.Impl,
 			apiPackagePath,
 		)
+		if err != nil {
+			return fmt.Errorf(
+				"failed to compute implementation package path associated with API %s: %w",
+				apiPackagePath,
+				err,
+			)
+		}
 		repImpls, err := parseRepositoryImpls(
 			ctx,
 			fsys,
@@ -91,22 +102,28 @@ func run() error {
 			repos,
 		)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to parse repository implementations: %w", err)
 		}
 		for filename, impls := range groupByImplFilename(repImpls) {
 			implPath := path.Join(implPackagePath, filename)
-			_, err := os.Stat(implPath)
-			exists := err == nil
+			_, statErr := os.Stat(implPath)
+			exists := statErr == nil
 			data, err := generateRepositoryImplsForFile(fsys, implPath, impls)
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to generate implementation file: %w", err)
+			}
+			if err := os.MkdirAll(
+				path.Dir(implPath),
+				0755,
+			); err != nil {
+				return fmt.Errorf("failed to create directory for implementation file at %s: %w", implPath, err)
 			}
 			if err := os.WriteFile(
 				implPath,
 				[]byte(data),
 				0644,
 			); err != nil {
-				return err
+				return fmt.Errorf("failed to write implementation file at %s: %w", implPath, err)
 			}
 
 			var nNewImpls, nNewMethods int
@@ -115,6 +132,9 @@ func run() error {
 					nNewImpls++
 				}
 				nNewMethods += len(impl.NewMethods())
+			}
+			if nNewImpls == 0 && nNewMethods == 0 {
+				continue
 			}
 			var logMsg string
 			if exists {
@@ -130,6 +150,18 @@ func run() error {
 				slog.Int("new_methods", nNewMethods),
 			)
 		}
+		stubSrc, err := generateRepositoryStubFile(fsys, cli.Impl, repImpls...)
+		if err != nil {
+			return fmt.Errorf("failed to generate repository stub file: %w", err)
+		}
+		if err := os.WriteFile(
+			path.Join(cli.Impl, "repositories.go"),
+			[]byte(stubSrc),
+			0644,
+		); err != nil {
+			return fmt.Errorf("failed to write repository stub file: %w", err)
+		}
+		slog.Debug("Generated repository stub file")
 	}
 	return nil
 }

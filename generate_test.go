@@ -360,8 +360,9 @@ func TestGenerateMethodImpl(t *testing.T) {
 			},
 			`
   func (r *repositoryImpl) A(ctx context.Context, _ bool) {
-    ctx, span := otel.GetTracerProvider().Tracer("foo").Start(ctx, "Repository.A") //nolint:all
+    ctx, span := otel.GetTracerProvider().Tracer("foo").Start(ctx, "Repository.A")
     defer span.End()
+    _ = ctx
     panic("TODO: implement foo.Repository.A")
   }
 `,
@@ -385,7 +386,7 @@ func TestGenerateMethodImpl(t *testing.T) {
 			},
 			`
   func (r *repositoryImpl) A(ctx context.Context) (err error) {
-    ctx, span := otel.GetTracerProvider().Tracer("foo").Start(ctx, "Repository.A") //nolint:all
+    ctx, span := otel.GetTracerProvider().Tracer("foo").Start(ctx, "Repository.A")
     defer func() {
       if err != nil {
         err = eris.Wrap(err, "foo.Repository.A")
@@ -394,6 +395,7 @@ func TestGenerateMethodImpl(t *testing.T) {
       }
       span.End()
     }()
+    _ = ctx
     panic("TODO: implement foo.Repository.A")
   }
 `,
@@ -861,6 +863,144 @@ type repositoryImpl struct {
 			)
 			require.NoError(err)
 			t.Log(got)
+			require.Equal(test.expect, got)
+		})
+	}
+}
+
+func TestGenerateRepositoryStubFile(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		have   []*RepositoryImpl
+		expect string
+	}{
+		{
+			"no repositories",
+			[]*RepositoryImpl{},
+			`// DO NOT MODIFY
+// This file will be automatically regenerated based on the API.
+package internal
+
+import "go.uber.org/fx"
+
+var Repositories = fx.Options()
+`,
+		},
+		{
+			"repositories from same package",
+			[]*RepositoryImpl{
+				{
+					Repository: Repository{
+						Ident:       "B",
+						PackagePath: "api/waltuh",
+						Filename:    "b.go",
+					},
+					ImplFilename:    "b_impl.go",
+					ImplPackage:     "waltuh",
+					ImplPackagePath: "internal/waltuh",
+				},
+				{
+					Repository: Repository{
+						Ident:       "Repository",
+						PackagePath: "api/waltuh",
+						Filename:    "repository.go",
+					},
+					ImplFilename:    "repository_impl.go",
+					ImplPackage:     "waltuh",
+					ImplPackagePath: "internal/waltuh",
+				},
+				{
+					Repository: Repository{
+						Ident:       "A",
+						PackagePath: "api/waltuh",
+						Filename:    "a.go",
+					},
+					ImplFilename:    "a_impl.go",
+					ImplPackage:     "waltuh",
+					ImplPackagePath: "internal/waltuh",
+				},
+			},
+			`// DO NOT MODIFY
+// This file will be automatically regenerated based on the API.
+package internal
+
+//go:generate mockgen -source=api/waltuh/repository.go -destination=internal/waltuh/mocks/repository.go
+//go:generate mockgen -source=api/waltuh/a.go -destination=internal/waltuh/mocks/a.go
+//go:generate mockgen -source=api/waltuh/b.go -destination=internal/waltuh/mocks/b.go
+
+import (
+	"example/internal/waltuh"
+
+	"go.uber.org/fx"
+)
+
+var Repositories = fx.Options(
+	waltuh.Options,
+	waltuh.AOptions,
+	waltuh.BOptions,
+)
+`,
+		},
+		{
+			"repositories from different packages",
+			[]*RepositoryImpl{
+				{
+					Repository: Repository{
+						Ident:       "Repository",
+						PackagePath: "api/waltuh",
+						Filename:    "repository.go",
+					},
+					ImplFilename:    "repository_impl.go",
+					ImplPackage:     "waltuh",
+					ImplPackagePath: "internal/waltuh",
+				},
+				{
+					Repository: Repository{
+						Ident:       "Repository",
+						PackagePath: "api/jesse",
+						Filename:    "repository.go",
+					},
+					ImplFilename:    "repository_impl.go",
+					ImplPackage:     "jesse",
+					ImplPackagePath: "internal/jesse",
+				},
+			},
+			`// DO NOT MODIFY
+// This file will be automatically regenerated based on the API.
+package internal
+
+//go:generate mockgen -source=api/jesse/repository.go -destination=internal/jesse/mocks/repository.go
+//go:generate mockgen -source=api/waltuh/repository.go -destination=internal/waltuh/mocks/repository.go
+
+import (
+	"example/internal/jesse"
+	"example/internal/waltuh"
+
+	"go.uber.org/fx"
+)
+
+var Repositories = fx.Options(
+	jesse.Options,
+	waltuh.Options,
+)
+`,
+		},
+	} {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			require := require.New(t)
+			fsys := make(fstest.MapFS)
+			fsys["go.mod"] = &fstest.MapFile{Data: []byte(`
+        module example
+
+        go 1.22.1`,
+			), Mode: 0644}
+			got, err := generateRepositoryStubFile(
+				fsys,
+				"internal",
+				test.have...,
+			)
+			require.NoError(err)
 			require.Equal(test.expect, got)
 		})
 	}

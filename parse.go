@@ -27,10 +27,11 @@ type (
 	}
 	RepositoryImpl struct {
 		Repository
-		IsNew        bool
-		ImplPackage  string
-		ImplFilename string
-		ImplMethods  []string
+		IsNew           bool
+		ImplPackage     string
+		ImplPackagePath string
+		ImplFilename    string
+		ImplMethods     []string
 	}
 	Import struct {
 		Name string
@@ -89,6 +90,7 @@ func parseRepositoriesForPackage(
 		}
 		for _, repo := range packageRepos {
 			repo.Filename = filename
+			repo.PackagePath = packagePath
 		}
 		repos = append(repos, packageRepos...)
 	}
@@ -162,21 +164,21 @@ func parseRepositories(src []byte, tree *sitter.Tree) (repos []*Repository, err 
 	}
 
 	pkg := m.Captures[0].Node.Content(src)
+	defer func() {
+		for _, repo := range repos {
+			repo.Package = pkg
+		}
+	}()
 	m, ok = qc.NextMatch()
 	if !ok {
 		return nil, nil
 	}
 	var curIdx, methodIdx int
-	repos = append(repos, &Repository{Package: pkg})
+	repos = append(repos, &Repository{})
 	for {
 		m = qc.FilterPredicates(m, src)
 		for _, c := range m.Captures {
 			repo := repos[curIdx]
-			slog.Debug(
-				"capture",
-				slog.Int("index", int(c.Index)),
-				slog.String("content", c.Node.Content(src)),
-			)
 			switch c.Index {
 			case CLASS_NAME_CAPTURE:
 				name := c.Node.Content(src)
@@ -186,7 +188,7 @@ func parseRepositories(src []byte, tree *sitter.Tree) (repos []*Repository, err 
 					// We have a new repository, so append the previous one to the list.
 					methodIdx = 0
 					curIdx++
-					repos = append(repos, &Repository{Package: pkg, Ident: name})
+					repos = append(repos, &Repository{Ident: name})
 				} else if repo.Ident == "" {
 					repo.Ident = name
 				}
@@ -297,14 +299,17 @@ func parseRepositoryImpls(
 		}
 	}
 	entries, err := fs.ReadDir(fsys, implPackagePath)
-	if errors.Is(err, fs.ErrNotExist) {
-		for _, repo := range impls {
-			repo.ImplPackage = implPackageName
-			repo.ImplFilename = defaultImplFilename(repo)
-			repo.IsNew = true
+	if err != nil {
+		err := err.(*fs.PathError)
+		if errors.Is(err.Err, fs.ErrNotExist) {
+			for _, repo := range impls {
+				repo.ImplPackage = implPackageName
+				repo.ImplPackagePath = implPackagePath
+				repo.ImplFilename = defaultImplFilename(repo)
+				repo.IsNew = true
+			}
+			return impls, nil
 		}
-		return impls, nil
-	} else if err != nil {
 		return nil, err
 	}
 
@@ -348,6 +353,7 @@ func parseRepositoryImpls(
 	for _, repo := range impls {
 		implName := repo.ImplName()
 		repo.ImplPackage = implPackageName
+		repo.ImplPackagePath = implPackagePath
 		if filename, ok := implDeclsToFileMap[implName]; ok {
 			repo.ImplFilename = filename
 			repo.ImplMethods = repositoryToMethodMap[implName]

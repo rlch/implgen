@@ -14,4 +14,7 @@ type Repository interface {
 	Nope()
 }
 
-type BRepository interface{}
+type BRepository interface {
+	Yep(ctx context.Context, id string) (string, error)
+	Yope() (string, error)
+}

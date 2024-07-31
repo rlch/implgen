@@ -89,6 +89,13 @@ func TestComputeImplPackagePath(t *testing.T) {
 		expect                            string
 	}{
 		{
+			"canonicalizes paths",
+			"./",
+			"internal",
+			"./movies/v1",
+			"internal/movies/v1",
+		},
+		{
 			"canonicalizes paths; empty apiRoot",
 			"",
 			"internal",
@@ -109,9 +116,17 @@ func TestComputeImplPackagePath(t *testing.T) {
 			"api/movies/cinema/tv",
 			"internal/movies/cinema/tv",
 		},
+		{
+			"absolute paths are handled correctly",
+			"/src/api",
+			"/src/internal",
+			"/src/api/movies/v1",
+			"/src/internal/movies/v1",
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			got := computeImplPackagePath(test.apiRoot, test.implRoot, test.apiPackagePath)
+			got, err := computeImplPackagePath(test.apiRoot, test.implRoot, test.apiPackagePath)
+			require.NoError(t, err)
 			require.Equal(t, test.expect, got)
 		})
 	}
