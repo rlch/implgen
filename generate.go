@@ -10,6 +10,7 @@ import (
 	"io"
 	"io/fs"
 	"path"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -419,8 +420,17 @@ func generateRepositoryStubFile(
 		if _, done := mocked[src]; done {
 			continue
 		}
+		var err error
+		src, err = filepath.Rel(cli.Impl, src)
+		if err != nil {
+			return "", fmt.Errorf("failed to get relative path: %w", err)
+		}
 		mocked[src] = true
 		dst := path.Join(repository.ImplPackagePath, "mocks", repository.Filename)
+		dst, err = filepath.Rel(cli.Impl, dst)
+		if err != nil {
+			return "", fmt.Errorf("failed to get relative path: %w", err)
+		}
 		templateData.MockDirectives = append(templateData.MockDirectives, struct {
 			Src string
 			Dst string
@@ -528,6 +538,7 @@ func collectImports(
 	imports := []Import{}
 	for _, imp := range allImports {
 		if _, ok := usedImports[imp.Path]; !ok {
+			usedImports[imp.Path] = true
 			imports = append(imports, imp)
 		}
 	}
