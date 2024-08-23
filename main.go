@@ -112,6 +112,13 @@ func run() error {
 			if err != nil {
 				return fmt.Errorf("failed to generate implementation file: %w", err)
 			}
+			testData, err := generateRepositoryTestsForFile(fsys, implPath, impls)
+			if err != nil {
+				return fmt.Errorf("failed to generate implementation file: %w", err)
+			}
+			if data == "" {
+				continue
+			}
 			if err := os.MkdirAll(
 				path.Dir(implPath),
 				0755,
@@ -164,6 +171,17 @@ func run() error {
 		slog.Debug("Generated repository stub file")
 	}
 	return nil
+}
+
+func groupByPackage(repositories []*RepositoryImpl) map[string][]*RepositoryImpl {
+	grouped := make(map[string][]*RepositoryImpl)
+	for _, repository := range repositories {
+		grouped[repository.Package] = append(
+			grouped[repository.Package],
+			repository,
+		)
+	}
+	return grouped
 }
 
 func groupByImplFilename(repositories []*RepositoryImpl) map[string][]*RepositoryImpl {

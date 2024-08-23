@@ -2,14 +2,12 @@
 // This file will be automatically regenerated based on the API.
 package internal
 
-//go:generate mockgen -source=../api/waltuh/repository.go -destination=waltuh/mocks/repository.go
-//go:generate mockgen -source=../api/waltuh/another.go -destination=waltuh/mocks/another.go
-//go:generate mockgen -source=../api/waltuh/repository.go -destination=waltuh/mocks/repository.go
+//go:generate moq -out=waltuh/mocks.go -pkg=waltuhimpl -rm -skip-ensure ../api/waltuh AnotherRepository BRepository Repository
 
 import (
-	waltuhimpl "example/internal/waltuh"
-
 	"go.uber.org/fx"
+
+	waltuhimpl "example/internal/waltuh"
 )
 
 var Repositories = fx.Options(

@@ -868,6 +868,308 @@ type repositoryImpl struct {
 	}
 }
 
+func TestGenerateRepositoryTest(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		have   RepositoryImpl
+		expect string
+	}{
+		{
+			"no methods",
+			RepositoryImpl{
+				Repository: Repository{
+					Ident:   "Repository",
+					Package: "api",
+				},
+				ImplPackage: "internal",
+			},
+			`
+func TestRepository(t *testing.T) {
+	t.Parallel()
+	type Deps struct {
+		fx.In
+		Repository api.Repository
+	}
+	ctx := context.Background()
+	_ = ctx
+	app := fxtest.New(t,
+		fx.Provide(
+			// Add dependencies here
+		),
+    internal.Options,
+
+		fxutils.Test(t, func(t *testing.T, d internal.Dependencies) {
+      r := d.Repository
+      _ = r
+			// Initialization code here
+		}),
+	)
+	app.Run()
+}
+`,
+		},
+		{
+			"multiple methods",
+			RepositoryImpl{
+				Repository: Repository{
+					Ident:   "Repository",
+					Package: "api",
+					Methods: []*Method{
+						{
+							Ident: "A",
+						},
+						{
+							Ident: "B",
+						},
+					},
+				},
+				ImplPackage: "internal",
+			},
+			`
+func TestRepository(t *testing.T) {
+	t.Parallel()
+	type Deps struct {
+		fx.In
+		Repository api.Repository
+	}
+	ctx := context.Background()
+	_ = ctx
+	app := fxtest.New(t,
+		fx.Provide(
+			// Add dependencies here
+		),
+    internal.Options,
+
+		fxutils.Test(t, func(t *testing.T, d internal.Dependencies) {
+      r := d.Repository
+      _ = r
+			// Initialization code here
+
+			t.Run("A", func(t *testing.T) {
+				t.Skip()
+			})
+
+			t.Run("B", func(t *testing.T) {
+				t.Skip()
+			})
+		}),
+	)
+	app.Run()
+}
+`,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			require := require.New(t)
+			got, err := generateRepositoryTest(test.have)
+			require.NoError(err)
+			require.Equal(test.expect, got)
+		})
+	}
+}
+
+func TestGenerateRepositoryTestsForFile(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		fsys     map[string]string
+		filepath string
+		have     []*RepositoryImpl
+		expect   string
+	}{
+		{
+			"existing src retained",
+			map[string]string{
+				"go.mod": `
+        module example
+        `,
+				"internal/one_test.go": `// Some comment
+package internal_test
+
+import (
+  "errors"
+)
+
+type repositoryImpl struct{}
+
+var x errors.Something
+`,
+			},
+			"internal/one_test.go",
+			[]*RepositoryImpl{
+				{
+					Repository:  Repository{Package: "api"},
+					ImplPackage: "internal",
+				},
+			},
+			`// Some comment
+package internal_test
+
+import (
+	"errors"
+)
+
+type repositoryImpl struct{}
+
+var x errors.Something
+`,
+		},
+		{
+			"tests for new repositories added to end of file",
+			map[string]string{
+				"go.mod": `
+        module example
+        `,
+				"internal/one_test.go": `package internal_test
+
+import (
+  "errors"
+)
+
+type repositoryImpl struct{}
+
+var x errors.Something
+`,
+			},
+			"internal/one_test.go",
+			[]*RepositoryImpl{
+				{
+					Repository: Repository{
+						Package:     "api",
+						PackagePath: "api",
+						Ident:       "Repository",
+						Methods: []*Method{
+							{Ident: "A"},
+							{Ident: "B"},
+						},
+					},
+					ImplPackage:     "internal",
+					ImplPackagePath: "internal",
+					IsNew:           true,
+				},
+				{
+					Repository: Repository{
+						Package:     "api",
+						PackagePath: "api",
+						Ident:       "Another",
+						Methods: []*Method{
+							{Ident: "A"},
+							{Ident: "B"},
+						},
+					},
+					ImplPackage:     "internal",
+					ImplPackagePath: "internal",
+					IsNew:           true,
+				},
+				{
+					Repository: Repository{
+						Package:     "api",
+						PackagePath: "api",
+						Ident:       "Nope",
+					},
+					ImplPackage:     "internal",
+					ImplPackagePath: "internal",
+				},
+			},
+			`package internal_test
+
+import (
+	"context"
+	"errors"
+	"example/api"
+	"example/internal"
+	"testing"
+
+	fxutils "github.com/MathGaps/core/pkg/utils/fx"
+	"go.uber.org/fx"
+	"go.uber.org/fx/fxtest"
+)
+
+type repositoryImpl struct{}
+
+var x errors.Something
+
+func TestRepository(t *testing.T) {
+	t.Parallel()
+	type Deps struct {
+		fx.In
+		Repository api.Repository
+	}
+	ctx := context.Background()
+	_ = ctx
+	app := fxtest.New(t,
+		fx.Provide(
+		// Add dependencies here
+		),
+		internal.Options,
+
+		fxutils.Test(t, func(t *testing.T, d internal.Dependencies) {
+			r := d.Repository
+			_ = r
+			// Initialization code here
+
+			t.Run("A", func(t *testing.T) {
+				t.Skip()
+			})
+
+			t.Run("B", func(t *testing.T) {
+				t.Skip()
+			})
+		}),
+	)
+	app.Run()
+}
+
+func TestAnother(t *testing.T) {
+	t.Parallel()
+	type Deps struct {
+		fx.In
+		Repository api.Another
+	}
+	ctx := context.Background()
+	_ = ctx
+	app := fxtest.New(t,
+		fx.Provide(
+		// Add dependencies here
+		),
+		internal.AnotherOptions,
+
+		fxutils.Test(t, func(t *testing.T, d internal.AnotherDependencies) {
+			r := d.Repository
+			_ = r
+			// Initialization code here
+
+			t.Run("A", func(t *testing.T) {
+				t.Skip()
+			})
+
+			t.Run("B", func(t *testing.T) {
+				t.Skip()
+			})
+		}),
+	)
+	app.Run()
+}
+`,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			require := require.New(t)
+			fsys := make(fstest.MapFS, len(test.fsys))
+			for path, content := range test.fsys {
+				fsys[path] = &fstest.MapFile{Data: []byte(content), Mode: 0644}
+			}
+			got, err := generateRepositoryTestsForFile(
+				fsys,
+				test.filepath,
+				test.have,
+			)
+			require.NoError(err)
+			t.Log(got)
+			require.Equal(test.expect, got)
+		})
+	}
+}
+
 func TestGenerateRepositoryStubFile(t *testing.T) {
 	for _, test := range []struct {
 		name   string
@@ -924,9 +1226,7 @@ var Repositories = fx.Options()
 // This file will be automatically regenerated based on the API.
 package internal
 
-//go:generate mockgen -source=api/waltuh/repository.go -destination=internal/waltuh/mocks/repository.go
-//go:generate mockgen -source=api/waltuh/a.go -destination=internal/waltuh/mocks/a.go
-//go:generate mockgen -source=api/waltuh/b.go -destination=internal/waltuh/mocks/b.go
+//go:generate moq -out=waltuh/mocks.go -pkg=waltuh -rm -skip-ensure ../api/waltuh A B Repository
 
 import (
 	"example/internal/waltuh"
@@ -947,47 +1247,50 @@ var Repositories = fx.Options(
 				{
 					Repository: Repository{
 						Ident:       "Repository",
+						Package:     "waltuh",
 						PackagePath: "api/waltuh",
 						Filename:    "repository.go",
 					},
 					ImplFilename:    "repository_impl.go",
-					ImplPackage:     "waltuh",
-					ImplPackagePath: "internal/waltuh",
+					ImplPackage:     "waltuhimpl",
+					ImplPackagePath: "internal/waltuhimpl",
 				},
 				{
 					Repository: Repository{
 						Ident:       "Repository",
+						Package:     "jesse",
 						PackagePath: "api/jesse",
 						Filename:    "repository.go",
 					},
 					ImplFilename:    "repository_impl.go",
-					ImplPackage:     "jesse",
-					ImplPackagePath: "internal/jesse",
+					ImplPackage:     "jesseimpl",
+					ImplPackagePath: "internal/jesseimpl",
 				},
 			},
 			`// DO NOT MODIFY
 // This file will be automatically regenerated based on the API.
 package internal
 
-//go:generate mockgen -source=api/jesse/repository.go -destination=internal/jesse/mocks/repository.go
-//go:generate mockgen -source=api/waltuh/repository.go -destination=internal/waltuh/mocks/repository.go
+//go:generate moq -out=jesseimpl/mocks.go -pkg=jesseimpl -rm -skip-ensure ../api/jesse Repository
+//go:generate moq -out=waltuhimpl/mocks.go -pkg=waltuhimpl -rm -skip-ensure ../api/waltuh Repository
 
 import (
-	"example/internal/jesse"
-	"example/internal/waltuh"
+	"example/internal/jesseimpl"
+	"example/internal/waltuhimpl"
 
 	"go.uber.org/fx"
 )
 
 var Repositories = fx.Options(
-	jesse.Options,
-	waltuh.Options,
+	jesseimpl.Options,
+	waltuhimpl.Options,
 )
 `,
 		},
 	} {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
+			cli.Impl = "internal"
 			require := require.New(t)
 			fsys := make(fstest.MapFS)
 			fsys["go.mod"] = &fstest.MapFile{Data: []byte(`
