@@ -4,7 +4,6 @@ package waltuhimpl
 
 import (
 	"context"
-
 	"example/api/waltuh"
 
 	"github.com/rotisserie/eris"
@@ -56,8 +55,6 @@ func (r *anotherRepositoryImpl) B(ctx context.Context) (err error) {
 	_ = ctx
 	panic("TODO: implement waltuh.AnotherRepository.B")
 }
-
-type SomeTypeThatShouolStay struct{}
 
 func (r *anotherRepositoryImpl) C() (_ string, err error) {
 	defer func() {

@@ -112,10 +112,6 @@ func run() error {
 			if err != nil {
 				return fmt.Errorf("failed to generate implementation file: %w", err)
 			}
-			testData, err := generateRepositoryTestsForFile(fsys, implPath, impls)
-			if err != nil {
-				return fmt.Errorf("failed to generate implementation file: %w", err)
-			}
 			if data == "" {
 				continue
 			}
