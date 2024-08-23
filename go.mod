@@ -1,4 +1,4 @@
-module implgen
+module github.com/rlch/implgen
 
 go 1.22.1
 
