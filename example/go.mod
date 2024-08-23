@@ -3,7 +3,6 @@ module example
 go 1.22.4
 
 require (
-	github.com/MathGaps/core v1.70.3-0.20240628035124-40b64149a699
 	github.com/rotisserie/eris v0.5.4
 	go.opentelemetry.io/otel v1.28.0
 	go.uber.org/fx v1.22.1
