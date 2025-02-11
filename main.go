@@ -25,7 +25,7 @@ var (
 	fset = token.NewFileSet()
 )
 
-var diPkg string = "fx"
+var useDig bool
 
 func main() {
 	kong.Parse(
@@ -40,9 +40,7 @@ func main() {
 		logOpts.Level = slog.LevelDebug
 		logOpts.AddSource = true
 	}
-	if cli.Dig {
-		diPkg = "dig"
-	}
+	useDig = cli.Dig
 	logger := slog.New(
 		tint.NewHandler(os.Stdout, logOpts),
 	)

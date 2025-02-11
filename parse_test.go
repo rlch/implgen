@@ -141,6 +141,28 @@ func TestParseRepositories(t *testing.T) {
 			},
 		},
 		{
+			"Methods with generics",
+			`
+      package main
+
+      type Repository[U any, V int] interface {
+        A() U
+        B() V
+      }
+      `,
+			[]*Repository{
+				{
+					Package:  "main",
+					Generics: "[U any, V int]",
+					Ident:    "Repository",
+					Methods: []*Method{
+						{Ident: "A", Returns: []*Param{{Type: "U"}}},
+						{Ident: "B", Returns: []*Param{{Type: "V"}}},
+					},
+				},
+			},
+		},
+		{
 			"Methods with args and returns",
 			`
       package main
@@ -353,6 +375,25 @@ func TestParseRepositoryImplFile(t *testing.T) {
 					"bazRepositoryImpl",
 				},
 				map[string][]string{},
+			},
+		},
+		{
+			"parses generic repository impl",
+			`
+      package main
+
+      type repositoryImpl[T any] struct {}
+
+      func (i *repositoryImpl[T])  A() {}
+      `,
+			expect{
+				"main",
+				[]string{
+					"repositoryImpl",
+				},
+				map[string][]string{
+					"repositoryImpl": {"A"},
+				},
 			},
 		},
 		{

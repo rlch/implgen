@@ -22,6 +22,7 @@ type (
 		PackagePath string
 		Filename    string
 		Ident       string
+		Generics    string
 		Methods     []*Method
 		Imports     []Import
 	}
@@ -48,6 +49,21 @@ type (
 		Type  string
 	}
 )
+
+func (r Repository) GenericsInstance() (out string) {
+	generics := strings.Trim(r.Generics, "[]")
+	if generics == "" {
+		return ""
+	}
+	for i, s := range strings.Split(generics, ",") {
+		if i != 0 {
+			out += ", "
+		}
+		s = strings.TrimSpace(s)
+		out += strings.Split(s, " ")[0]
+	}
+	return "[" + out + "]"
+}
 
 var (
 	ErrNoPackage = errors.New("no package name found")
@@ -128,6 +144,7 @@ func parseRepositories(src []byte, tree *sitter.Tree) (repos []*Repository, err 
 	const (
 		PKG_CAPTURE = iota
 		CLASS_NAME_CAPTURE
+		GENERICS_CAPTURE
 		METHOD_NAME_CAPTURE
 		PARAMS_CAPTURE
 		RESULT_CAPTURE
@@ -137,6 +154,7 @@ func parseRepositories(src []byte, tree *sitter.Tree) (repos []*Repository, err 
 
 (type_spec
   name: (type_identifier) @class_name (#match? @class_name "Repository$")
+  type_parameters: (type_parameter_list)? @generics
   type: 
    (interface_type
      (method_elem
@@ -192,6 +210,9 @@ func parseRepositories(src []byte, tree *sitter.Tree) (repos []*Repository, err 
 				} else if repo.Ident == "" {
 					repo.Ident = name
 				}
+			case GENERICS_CAPTURE:
+				generics := c.Node.Content(src)
+				repo.Generics = generics
 			case METHOD_NAME_CAPTURE:
 				var curMethod *Method
 				methodName := c.Node.Content(src)
@@ -379,6 +400,8 @@ func parseRepositoryImplFile(ctx context.Context, src []byte) (
 	)
 	repImpls = []string{}
 	methods = make(map[string][]string)
+	// NOTE: We use (.*) after an Impl as a workaround for (\[.*\])?
+	// should be fiiiiiiiiiiiiiiiiiiiiinee
 	query, err := sitter.NewQuery([]byte(`
   (
     (package_clause (package_identifier) @pkg)
@@ -388,7 +411,7 @@ func parseRepositoryImplFile(ctx context.Context, src []byte) (
     (method_declaration
         receiver: (parameter_list
           (parameter_declaration
-            type: (_) @impl_rec (#match? @impl_rec "Impl$")))
+            type: (_) @impl_rec (#match? @impl_rec "Impl(.*)?$")))
         name: (field_identifier) @impl_field)?
   )
 `), lang)
@@ -424,8 +447,12 @@ func parseRepositoryImplFile(ctx context.Context, src []byte) (
 				rec := c.Node.Content(src)
 				if rec == "" {
 					continue
-				} else if rec[0] == '*' {
+				}
+				if rec[0] == '*' {
 					rec = rec[1:]
+				}
+				if idx := strings.Index(rec, "["); idx != -1 {
+					rec = rec[:idx]
 				}
 				curRec = rec
 			case IMPL_FIELD_CAPTURE:

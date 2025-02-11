@@ -1,3 +1,5 @@
+// This file will be automatically regenerated based on the API. Any repository implementations
+// will be copied through when generating and new methods will be added to the end.
 package waltuhimpl
 
 import (
@@ -7,20 +9,6 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
 )
-
-func (r *repositoryImpl) DropWaltJrOffAtSchool(ctx context.Context) (_ bool, err error) {
-	ctx, span := otel.GetTracerProvider().Tracer("waltuh").Start(ctx, "Repository.DropWaltJrOffAtSchool")
-	defer func() {
-		if err != nil {
-			err = eris.Wrap(err, "waltuh.Repository.DropWaltJrOffAtSchool")
-			span.SetStatus(codes.Error, "")
-			span.RecordError(err)
-		}
-		span.End()
-	}()
-	_ = ctx
-	return false, nil
-}
 
 func (r *repositoryImpl) KillKrazy8(ctx context.Context, missingPlateShards int) (_ string, err error) {
 	ctx, span := otel.GetTracerProvider().Tracer("waltuh").Start(ctx, "Repository.KillKrazy8")
@@ -33,5 +21,5 @@ func (r *repositoryImpl) KillKrazy8(ctx context.Context, missingPlateShards int)
 		span.End()
 	}()
 	_ = ctx
-	return "done", nil
+	return "kill confirmed", nil
 }

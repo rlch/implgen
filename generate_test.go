@@ -318,6 +318,23 @@ func TestGenerateMethodImpl(t *testing.T) {
 `,
 		},
 		{
+			"generics are instantiated",
+			Input{
+				Repository{
+					Ident:    "Repository",
+					Generics: "[A, B, C int]",
+				},
+				Method{
+					Ident: "A",
+				},
+			},
+			`
+  func (r *repositoryImpl[A, B, C]) A() {
+    panic("TODO: implement Repository.A")
+  }
+`,
+		},
+		{
 			"err is wrapped with method metadata",
 			Input{
 				Repository{
@@ -442,6 +459,30 @@ func NewRepository(deps Dependencies) foo.Repository {
 
 type repositoryImpl struct {
   Dependencies
+}
+`,
+		},
+		{
+			"generates generic repository",
+			Repository{
+				Package:  "foo",
+				Ident:    "Repository",
+				Generics: "[A, B string, C int]",
+			},
+			`
+type Dependencies[A, B string, C int] struct {
+  fx.In
+	// Add dependencies here
+}
+
+func NewRepository[A, B string, C int](deps Dependencies[A, B, C]) foo.Repository[A, B, C] {
+	return &repositoryImpl[A, B, C]{
+    Dependencies: deps,
+	}
+}
+
+type repositoryImpl[A, B string, C int] struct {
+  Dependencies[A, B, C]
 }
 `,
 		},
@@ -1007,7 +1048,7 @@ var Repositories = fx.Options(
 	}
 }
 
-func TestDig(t *testing.T) {
+func TestGenerateRepositoryStubFileUsingDig(t *testing.T) {
 	for _, test := range []struct {
 		name   string
 		have   []*RepositoryImpl
@@ -1049,14 +1090,12 @@ package internal
 import (
 	"example/internal/jesseimpl"
 	"example/internal/waltuhimpl"
-
-	"go.uber.org/dig"
 )
 
-var Repositories = dig.Options(
-	jesseimpl.Options,
-	waltuhimpl.Options,
-)
+var RepositoryFactories = []any{
+	jesseimpl.NewRepository,
+	waltuhimpl.NewRepository,
+}
 `,
 		},
 	} {
@@ -1070,13 +1109,87 @@ var Repositories = dig.Options(
 
         go 1.22.1`,
 			), Mode: 0644}
-			diPkg = "dig"
+			useDig = true
 			got, err := generateRepositoryStubFile(
 				fsys,
 				"internal",
 				test.have...,
 			)
 			require.NoError(err)
+			require.Equal(test.expect, got)
+		})
+	}
+}
+
+func TestGenerateRepositoryImplsForFileUsingDig(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		fsys     map[string]string
+		filepath string
+		have     []*RepositoryImpl
+		expect   string
+	}{
+		{
+			"package created from scratch",
+			map[string]string{
+				"go.mod": `
+        module example
+        `,
+			},
+			"internal/one.go",
+			[]*RepositoryImpl{
+				{
+					Repository: Repository{
+						Package:     "api",
+						PackagePath: "api",
+						Ident:       "Repository",
+					},
+					IsNew:       true,
+					ImplPackage: "internal",
+					ImplMethods: []string{},
+				},
+			},
+			`// This file will be automatically regenerated based on the API. Any repository implementations
+// will be copied through when generating and new methods will be added to the end.
+package internal
+
+import (
+	"example/api"
+
+	"go.uber.org/dig"
+)
+
+type Dependencies struct {
+	dig.In
+	// Add dependencies here
+}
+
+func NewRepository(deps Dependencies) api.Repository {
+	return &repositoryImpl{
+		Dependencies: deps,
+	}
+}
+
+type repositoryImpl struct {
+	Dependencies
+}
+`,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			require := require.New(t)
+			fsys := make(fstest.MapFS, len(test.fsys))
+			useDig = true
+			for path, content := range test.fsys {
+				fsys[path] = &fstest.MapFile{Data: []byte(content), Mode: 0644}
+			}
+			got, err := generateRepositoryImplsForFile(
+				fsys,
+				test.filepath,
+				test.have,
+			)
+			require.NoError(err)
+			t.Log(got)
 			require.Equal(test.expect, got)
 		})
 	}

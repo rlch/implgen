@@ -177,7 +177,7 @@ func (r Repository) QualifiedName() string {
 }
 
 const generateMethodTemplate = `
-  func (r *{{ .Repository.ImplName }}) {{ .Method.Ident }}({{ .Method.Params.ParamsSrc }}){{ pad .Method.Returns.ReturnsSrc }}{
+  func (r *{{ .Repository.ImplName }}{{ .Repository.GenericsInstance }}) {{ .Method.Ident }}({{ .Method.Params.ParamsSrc }}){{ pad .Method.Returns.ReturnsSrc }}{
   {{- if .Method.Params.HasCtx }}
     ctx, span := otel.GetTracerProvider().Tracer("{{ .Repository.Package }}").Start(ctx, "{{ .Repository.Name }}.{{ .Method.Ident }}")
     {{- if .Method.Returns.HasError }}
@@ -233,26 +233,34 @@ func generateMethodImpl(repository Repository, method Method) (string, error) {
 
 // generateRepositoryImpl generates the method and struct declarations for a single repository.
 func generateRepositoryImpl(repository Repository) (string, error) {
-	generateRepositoryImplTemplate := `
-type {{ .Repository.QualifyString "Dependencies" }} struct {
-  ` + diPkg + `.In
-	// Add dependencies here
-}
-
-var {{ .Repository.QualifyString "Options" }} = ` + diPkg + `.Options(
-	` + diPkg + `.Provide(
+	diPkg := "fx"
+	options := `
+var {{ .Repository.QualifyString "Options" }} = fx.Options(
+	fx.Provide(
 		New{{ .Repository.Ident }},
 	),
 )
-
-func New{{ .Repository.Ident }}(deps {{ .Repository.QualifyString "Dependencies" }}) {{ .Repository.Package }}.{{ .Repository.Ident }} {
-	return &{{ .Repository.ImplName }}{
+`
+	if useDig {
+		diPkg = "dig"
+		options = ""
+	} else if repository.Generics != "" {
+		options = ""
+	}
+	generateRepositoryImplTemplate := `
+type {{ .Repository.QualifyString "Dependencies" }}{{ .Repository.Generics }} struct {
+  ` + diPkg + `.In
+	// Add dependencies here
+}
+` + options + `
+func New{{ .Repository.Ident }}{{ .Repository.Generics }}(deps {{ .Repository.QualifyString "Dependencies" }}{{ .Repository.GenericsInstance }}) {{ .Repository.Package }}.{{ .Repository.Ident }}{{ .Repository.GenericsInstance }} {
+	return &{{ .Repository.ImplName }}{{ .Repository.GenericsInstance }}{
     {{ .Repository.QualifyString "Dependencies" }}: deps,
 	}
 }
 
-type {{ .Repository.ImplName }} struct {
-  {{ .Repository.QualifyString "Dependencies" }}
+type {{ .Repository.ImplName }}{{ .Repository.Generics }} struct {
+  {{ .Repository.QualifyString "Dependencies" }}{{ .Repository.GenericsInstance }}
 }
 `
 	tmpl, err := template.
@@ -462,7 +470,9 @@ func generateRepositoryStubFile(
 	}
 	templateData.Imports = imports
 
-	repositoryStubFileTemplate := `
+	var repositoryStubFileTemplate string
+	if useDig {
+		repositoryStubFileTemplate = `
 // DO NOT MODIFY
 // This file will be automatically regenerated based on the API.
 package {{ .Package }}
@@ -474,12 +484,36 @@ package {{ .Package }}
 import {{ .Name }} "{{ .Path }}"
 {{- end }}
 
-var Repositories = ` + diPkg + `.Options(
+var RepositoryFactories = []any{
 {{ range .Repositories -}}
+  {{ if not .Generics -}} 
+  {{ .ImplPackage }}.New{{ .Ident }},
+  {{- end }}
+{{ end -}}
+}
+`
+	} else {
+		repositoryStubFileTemplate = `
+// DO NOT MODIFY
+// This file will be automatically regenerated based on the API.
+package {{ .Package }}
+{{ range .MockDirectives -}}
+//go:generate moq -out={{ .Dst }} -pkg={{ .ImplPackage }} -rm -skip-ensure {{ .Src }} {{ range .Repositories }}{{.}} {{ end }}
+{{ end -}}
+
+{{ range .Imports }}
+import {{ .Name }} "{{ .Path }}"
+{{- end }}
+
+var Repositories = fx.Options(
+{{ range .Repositories -}}
+  {{ if not .Generics -}} 
   {{ .ImplPackage }}.{{ .QualifyString "Options" }},
+  {{- end }}
 {{ end -}}
 )
 `
+	}
 	tmpl, err := template.
 		New("repositoryStubFileTemplate").
 		Parse(repositoryStubFileTemplate)
@@ -510,7 +544,11 @@ func collectImports(
 			usedImports[path] = true
 		}
 	}
-	allImports = append(allImports, Import{Name: "", Path: "go.uber.org/" + diPkg})
+	diPkgPath := "go.uber.org/fx"
+	if useDig {
+		diPkgPath = "go.uber.org/dig"
+	}
+	allImports = append(allImports, Import{Name: "", Path: diPkgPath})
 	allImports = append(allImports, extraImports...)
 	importRepositories := func(importAPI, importImpl bool) error {
 		for _, repository := range repositories {

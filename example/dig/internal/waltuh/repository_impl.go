@@ -10,19 +10,13 @@ import (
 	"github.com/rotisserie/eris"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
-	"go.uber.org/fx"
+	"go.uber.org/dig"
 )
 
 type Dependencies struct {
-	fx.In
+	dig.In
 	// Add dependencies here
 }
-
-var Options = fx.Options(
-	fx.Provide(
-		NewRepository,
-	),
-)
 
 func NewRepository(deps Dependencies) waltuh.Repository {
 	return &repositoryImpl{
@@ -57,6 +51,20 @@ func (r *repositoryImpl) MakeMoney(ctx context.Context, poundsOfMeth int) (_ int
 	}()
 	_ = ctx
 	panic("TODO: implement waltuh.Repository.MakeMoney")
+}
+
+func (r *repositoryImpl) DropWaltJrOffAtSchool(ctx context.Context) (_ bool, err error) {
+	ctx, span := otel.GetTracerProvider().Tracer("waltuh").Start(ctx, "Repository.DropWaltJrOffAtSchool")
+	defer func() {
+		if err != nil {
+			err = eris.Wrap(err, "waltuh.Repository.DropWaltJrOffAtSchool")
+			span.SetStatus(codes.Error, "")
+			span.RecordError(err)
+		}
+		span.End()
+	}()
+	_ = ctx
+	panic("TODO: implement waltuh.Repository.DropWaltJrOffAtSchool")
 }
 
 func (r *repositoryImpl) Get(ctx context.Context, id string) (_ string, err error) {
