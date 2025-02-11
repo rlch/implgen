@@ -40,8 +40,15 @@ func (r RepositoryImpl) NewMethods() []*Method {
 		returns := make(Params, len(method.Returns))
 		qualify := func(arg *Param) *Param {
 			isLower := 'a' <= arg.Type[0] && arg.Type[0] <= 'z'
+			// . implies package qualification, lowercase implies built-in
 			if strings.Contains(arg.Type, ".") || isLower {
 				return arg
+			}
+			// handle case where we return a generic defined by repository
+			for _, g := range r.GenericsVariableList() {
+				if arg.Type == g {
+					return arg
+				}
 			}
 			return &Param{
 				Ident: arg.Ident,
@@ -140,7 +147,7 @@ func (p Params) ParamsSrc() (s string) {
 func (p Params) ReturnsSrc() string {
 	p.Qualify()
 	src := p.ParamsSrc()
-	if p.Named() {
+	if p.Named() || len(p) > 1 {
 		return "(" + src + ")"
 	}
 	return src

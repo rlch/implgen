@@ -8,6 +8,61 @@ import (
 	"sync"
 )
 
+// MultiGenericsRepositoryMock is a mock implementation of generic.MultiGenericsRepository.
+//
+//	func TestSomethingThatUsesMultiGenericsRepository(t *testing.T) {
+//
+//		// make and configure a mocked generic.MultiGenericsRepository
+//		mockedMultiGenericsRepository := &MultiGenericsRepositoryMock{
+//			AFunc: func() (A, B, C) {
+//				panic("mock out the A method")
+//			},
+//		}
+//
+//		// use mockedMultiGenericsRepository in code that requires generic.MultiGenericsRepository
+//		// and then make assertions.
+//
+//	}
+type MultiGenericsRepositoryMock[A string, B string, C float32] struct {
+	// AFunc mocks the A method.
+	AFunc func() (A, B, C)
+
+	// calls tracks calls to the methods.
+	calls struct {
+		// A holds details about calls to the A method.
+		A []struct {
+		}
+	}
+	lockA sync.RWMutex
+}
+
+// A calls AFunc.
+func (mock *MultiGenericsRepositoryMock[A, B, C]) A() (A, B, C) {
+	if mock.AFunc == nil {
+		panic("MultiGenericsRepositoryMock.AFunc: method is nil but MultiGenericsRepository.A was just called")
+	}
+	callInfo := struct {
+	}{}
+	mock.lockA.Lock()
+	mock.calls.A = append(mock.calls.A, callInfo)
+	mock.lockA.Unlock()
+	return mock.AFunc()
+}
+
+// ACalls gets all the calls that were made to A.
+// Check the length with:
+//
+//	len(mockedMultiGenericsRepository.ACalls())
+func (mock *MultiGenericsRepositoryMock[A, B, C]) ACalls() []struct {
+} {
+	var calls []struct {
+	}
+	mock.lockA.RLock()
+	calls = mock.calls.A
+	mock.lockA.RUnlock()
+	return calls
+}
+
 // NoGenericsRepositoryMock is a mock implementation of generic.NoGenericsRepository.
 //
 //	func TestSomethingThatUsesNoGenericsRepository(t *testing.T) {

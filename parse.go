@@ -50,6 +50,19 @@ type (
 	}
 )
 
+func (r Repository) GenericsVariableList() []string {
+	out := []string{}
+	generics := strings.Trim(r.Generics, "[]")
+	if generics == "" {
+		return nil
+	}
+	for _, s := range strings.Split(generics, ",") {
+		s = strings.TrimSpace(s)
+		out = append(out, strings.Split(s, " ")[0])
+	}
+	return out
+}
+
 func (r Repository) GenericsInstance() (out string) {
 	generics := strings.Trim(r.Generics, "[]")
 	if generics == "" {

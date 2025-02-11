@@ -11,3 +11,7 @@ type Repository[T any] interface {
 type NoGenericsRepository interface {
 	Get(id string) (int, error)
 }
+
+type MultiGenericsRepository[A, B string, C float32] interface {
+	A() (A, B, C)
+}
