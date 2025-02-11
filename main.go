@@ -71,6 +71,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("failed to walk API directory: %w", err)
 	}
+	allRepImpls := []*RepositoryImpl{}
 	for apiPackagePath, packageFiles := range apiFiles {
 		repos, err := parseRepositoriesForPackage(
 			ctx,
@@ -110,6 +111,7 @@ func run() error {
 		if err != nil {
 			return fmt.Errorf("failed to parse repository implementations: %w", err)
 		}
+		allRepImpls = append(allRepImpls, repImpls...)
 		for filename, impls := range groupByImplFilename(repImpls) {
 			implPath := path.Join(implPackagePath, filename)
 			_, statErr := os.Stat(implPath)
@@ -159,19 +161,19 @@ func run() error {
 				slog.Int("new_methods", nNewMethods),
 			)
 		}
-		stubSrc, err := generateRepositoryStubFile(fsys, cli.Impl, repImpls...)
-		if err != nil {
-			return fmt.Errorf("failed to generate repository stub file: %w", err)
-		}
-		if err := os.WriteFile(
-			path.Join(cli.Impl, "repositories.go"),
-			[]byte(stubSrc),
-			0644,
-		); err != nil {
-			return fmt.Errorf("failed to write repository stub file: %w", err)
-		}
-		slog.Debug("Generated repository stub file")
 	}
+	stubSrc, err := generateRepositoryStubFile(fsys, cli.Impl, allRepImpls...)
+	if err != nil {
+		return fmt.Errorf("failed to generate repository stub file: %w", err)
+	}
+	if err := os.WriteFile(
+		path.Join(cli.Impl, "repositories.go"),
+		[]byte(stubSrc),
+		0644,
+	); err != nil {
+		return fmt.Errorf("failed to write repository stub file: %w", err)
+	}
+	slog.Debug("Generated repository stub file")
 	return nil
 }
 
