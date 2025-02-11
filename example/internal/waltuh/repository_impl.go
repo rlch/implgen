@@ -4,6 +4,7 @@ package waltuhimpl
 
 import (
 	"context"
+
 	"example/api/waltuh"
 
 	"github.com/rotisserie/eris"
@@ -56,34 +57,6 @@ func (r *repositoryImpl) MakeMoney(ctx context.Context, poundsOfMeth int) (_ int
 	}()
 	_ = ctx
 	panic("TODO: implement waltuh.Repository.MakeMoney")
-}
-
-func (r *repositoryImpl) DropWaltJrOffAtSchool(ctx context.Context) (_ bool, err error) {
-	ctx, span := otel.GetTracerProvider().Tracer("waltuh").Start(ctx, "Repository.DropWaltJrOffAtSchool")
-	defer func() {
-		if err != nil {
-			err = eris.Wrap(err, "waltuh.Repository.DropWaltJrOffAtSchool")
-			span.SetStatus(codes.Error, "")
-			span.RecordError(err)
-		}
-		span.End()
-	}()
-	_ = ctx
-	panic("TODO: implement waltuh.Repository.DropWaltJrOffAtSchool")
-}
-
-func (r *repositoryImpl) KillKrazy8(ctx context.Context, missingPlateShards int) (_ string, err error) {
-	ctx, span := otel.GetTracerProvider().Tracer("waltuh").Start(ctx, "Repository.KillKrazy8")
-	defer func() {
-		if err != nil {
-			err = eris.Wrap(err, "waltuh.Repository.KillKrazy8")
-			span.SetStatus(codes.Error, "")
-			span.RecordError(err)
-		}
-		span.End()
-	}()
-	_ = ctx
-	panic("TODO: implement waltuh.Repository.KillKrazy8")
 }
 
 func (r *repositoryImpl) Get(ctx context.Context, id string) (_ string, err error) {

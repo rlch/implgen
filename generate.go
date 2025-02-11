@@ -231,14 +231,16 @@ func generateMethodImpl(repository Repository, method Method) (string, error) {
 	return buf.String(), nil
 }
 
-const generateRepositoryImplTemplate = `
+// generateRepositoryImpl generates the method and struct declarations for a single repository.
+func generateRepositoryImpl(repository Repository) (string, error) {
+	generateRepositoryImplTemplate := `
 type {{ .Repository.QualifyString "Dependencies" }} struct {
-  fx.In
+  ` + diPkg + `.In
 	// Add dependencies here
 }
 
-var {{ .Repository.QualifyString "Options" }} = fx.Options(
-	fx.Provide(
+var {{ .Repository.QualifyString "Options" }} = ` + diPkg + `.Options(
+	` + diPkg + `.Provide(
 		New{{ .Repository.Ident }},
 	),
 )
@@ -253,9 +255,6 @@ type {{ .Repository.ImplName }} struct {
   {{ .Repository.QualifyString "Dependencies" }}
 }
 `
-
-// generateRepositoryImpl generates the method and struct declarations for a single repository.
-func generateRepositoryImpl(repository Repository) (string, error) {
 	tmpl, err := template.
 		New("generateRepositoryImplTemplate").
 		Parse(generateRepositoryImplTemplate)
@@ -372,25 +371,6 @@ package %s
 	return formatImports(filepath, src.Bytes())
 }
 
-var repositoryStubFileTemplate = `
-// DO NOT MODIFY
-// This file will be automatically regenerated based on the API.
-package {{ .Package }}
-{{ range .MockDirectives -}}
-//go:generate moq -out={{ .Dst }} -pkg={{ .ImplPackage }} -rm -skip-ensure {{ .Src }} {{ range .Repositories }}{{.}} {{ end }}
-{{ end -}}
-
-{{ range .Imports }}
-import {{ .Name }} "{{ .Path }}"
-{{- end }}
-
-var Repositories = fx.Options(
-{{ range .Repositories -}}
-  {{ .ImplPackage }}.{{ .QualifyString "Options" }},
-{{ end -}}
-)
-`
-
 func generateRepositoryStubFile(
 	fsys fs.FS,
 	packagePath string,
@@ -481,6 +461,25 @@ func generateRepositoryStubFile(
 		return "", err
 	}
 	templateData.Imports = imports
+
+	repositoryStubFileTemplate := `
+// DO NOT MODIFY
+// This file will be automatically regenerated based on the API.
+package {{ .Package }}
+{{ range .MockDirectives -}}
+//go:generate moq -out={{ .Dst }} -pkg={{ .ImplPackage }} -rm -skip-ensure {{ .Src }} {{ range .Repositories }}{{.}} {{ end }}
+{{ end -}}
+
+{{ range .Imports }}
+import {{ .Name }} "{{ .Path }}"
+{{- end }}
+
+var Repositories = ` + diPkg + `.Options(
+{{ range .Repositories -}}
+  {{ .ImplPackage }}.{{ .QualifyString "Options" }},
+{{ end -}}
+)
+`
 	tmpl, err := template.
 		New("repositoryStubFileTemplate").
 		Parse(repositoryStubFileTemplate)
@@ -511,7 +510,7 @@ func collectImports(
 			usedImports[path] = true
 		}
 	}
-	allImports = append(allImports, Import{Name: "", Path: "go.uber.org/fx"})
+	allImports = append(allImports, Import{Name: "", Path: "go.uber.org/" + diPkg})
 	allImports = append(allImports, extraImports...)
 	importRepositories := func(importAPI, importImpl bool) error {
 		for _, repository := range repositories {
@@ -541,8 +540,12 @@ func collectImports(
 		}
 		return nil
 	}
-	importRepositories(importAPI, false)
-	importRepositories(false, importImpl)
+	if err := importRepositories(importAPI, false); err != nil {
+		return nil, err
+	}
+	if err := importRepositories(false, importImpl); err != nil {
+		return nil, err
+	}
 
 	for _, repository := range repositories {
 		allImports = append(allImports, repository.Imports...)

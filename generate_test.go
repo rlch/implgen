@@ -1006,3 +1006,78 @@ var Repositories = fx.Options(
 		})
 	}
 }
+
+func TestDig(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		have   []*RepositoryImpl
+		expect string
+	}{
+		{
+			"repositories from different packages",
+			[]*RepositoryImpl{
+				{
+					Repository: Repository{
+						Ident:       "Repository",
+						Package:     "waltuh",
+						PackagePath: "api/waltuh",
+						Filename:    "repository.go",
+					},
+					ImplFilename:    "repository_impl.go",
+					ImplPackage:     "waltuhimpl",
+					ImplPackagePath: "internal/waltuhimpl",
+				},
+				{
+					Repository: Repository{
+						Ident:       "Repository",
+						Package:     "jesse",
+						PackagePath: "api/jesse",
+						Filename:    "repository.go",
+					},
+					ImplFilename:    "repository_impl.go",
+					ImplPackage:     "jesseimpl",
+					ImplPackagePath: "internal/jesseimpl",
+				},
+			},
+			`// DO NOT MODIFY
+// This file will be automatically regenerated based on the API.
+package internal
+
+//go:generate moq -out=jesseimpl/mocks.go -pkg=jesseimpl -rm -skip-ensure ../api/jesse Repository
+//go:generate moq -out=waltuhimpl/mocks.go -pkg=waltuhimpl -rm -skip-ensure ../api/waltuh Repository
+
+import (
+	"example/internal/jesseimpl"
+	"example/internal/waltuhimpl"
+
+	"go.uber.org/dig"
+)
+
+var Repositories = dig.Options(
+	jesseimpl.Options,
+	waltuhimpl.Options,
+)
+`,
+		},
+	} {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			cli.Impl = "internal"
+			require := require.New(t)
+			fsys := make(fstest.MapFS)
+			fsys["go.mod"] = &fstest.MapFile{Data: []byte(`
+        module example
+
+        go 1.22.1`,
+			), Mode: 0644}
+			diPkg = "dig"
+			got, err := generateRepositoryStubFile(
+				fsys,
+				"internal",
+				test.have...,
+			)
+			require.NoError(err)
+			require.Equal(test.expect, got)
+		})
+	}
+}

@@ -19,10 +19,13 @@ var (
 		Root    string `type:"path" help:"Root directory to generate the api/impl tree from." default:"."`
 		API     string `type:"string" help:"Directory to API definitions, relative to root." default:"api"`
 		Impl    string `type:"string" help:"Directory to implementation files, relative to root." default:"internal"`
+		Dig     bool   `help:"Use dig for dependency injection instead of fx."`
 		Verbose bool   `help:"Enable verbose logging." short:"v"`
 	}
 	fset = token.NewFileSet()
 )
+
+var diPkg string = "fx"
 
 func main() {
 	kong.Parse(
@@ -36,6 +39,9 @@ func main() {
 	if cli.Verbose {
 		logOpts.Level = slog.LevelDebug
 		logOpts.AddSource = true
+	}
+	if cli.Dig {
+		diPkg = "dig"
 	}
 	logger := slog.New(
 		tint.NewHandler(os.Stdout, logOpts),
