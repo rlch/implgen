@@ -9,6 +9,7 @@ import (
 	"go/parser"
 	"io"
 	"io/fs"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"sort"
@@ -618,7 +619,13 @@ func collectImports(
 	return imports, nil
 }
 
-func formatImports(filename string, src []byte) (string, error) {
+func formatImports(filename string, src []byte) (_ string, err error) {
+	cmd := exec.Command("gofumpt")
+	cmd.Stdin = bytes.NewReader(src)
+	src, err = cmd.Output()
+	if err != nil {
+		return "", err
+	}
 	formattedSrc, err := imports.Process(filename, src, nil)
 	if err != nil {
 		return "", err
