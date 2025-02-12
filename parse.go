@@ -207,12 +207,16 @@ func parseRepositories(src []byte, tree *sitter.Tree) (repos []*Repository, err 
 	var curIdx, methodIdx int
 	repos = append(repos, &Repository{})
 	for {
-		m = qc.FilterPredicates(m, src)
 		for _, c := range m.Captures {
 			repo := repos[curIdx]
 			switch c.Index {
 			case CLASS_NAME_CAPTURE:
 				name := c.Node.Content(src)
+				// NOTE: Apparently there's a problem with #match? directive, hacky
+				// workaround
+				if !strings.HasSuffix(name, "Repository") {
+					continue
+				}
 				if repo.Ident == name {
 					continue
 				} else if repo.Ident != "" {
@@ -256,6 +260,9 @@ func parseRepositories(src []byte, tree *sitter.Tree) (repos []*Repository, err 
 		if !ok {
 			break
 		}
+	}
+	if len(repos) == 1 && repos[0].Ident == "" {
+		return nil, nil
 	}
 	return
 }
@@ -372,7 +379,9 @@ func parseRepositoryImpls(
 			return nil, fmt.Errorf("failed to read file %s: %w", path, err)
 		}
 		pkg, implDecls, methods, err := parseRepositoryImplFile(ctx, src)
-		if err != nil {
+		if err == ErrNoPackage {
+			continue
+		} else if err != nil {
 			return nil, err
 		}
 		implPackageName = pkg
@@ -443,7 +452,7 @@ func parseRepositoryImplFile(ctx context.Context, src []byte) (
 	// Get package name
 	m, ok := qc.NextMatch()
 	if !ok {
-		return "", nil, nil, nil
+		return "", nil, nil, ErrNoPackage
 	}
 	repImplMap := map[string]bool{}
 	var curRec string
@@ -495,6 +504,9 @@ func parseRepositoryImplFile(ctx context.Context, src []byte) (
 		if !ok {
 			break
 		}
+	}
+	if packageName == "" {
+		return "", nil, nil, ErrNoPackage
 	}
 	for impl := range repImplMap {
 		repImpls = append(repImpls, impl)

@@ -14,7 +14,6 @@ import (
 )
 
 var RepositoryFactories = []any{
-
 	genericimpl.NewNoGenericsRepository,
 	nestedimpl.NewRepository,
 	waltuhimpl.NewRepository,
