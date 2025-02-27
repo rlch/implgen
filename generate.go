@@ -9,6 +9,7 @@ import (
 	"go/parser"
 	"io"
 	"io/fs"
+	"log/slog"
 	"os/exec"
 	"path"
 	"path/filepath"
@@ -39,30 +40,67 @@ func (r RepositoryImpl) NewMethods() []*Method {
 		}
 		args := make(Params, len(method.Params))
 		returns := make(Params, len(method.Returns))
-		qualify := func(arg *Param) *Param {
-			isLower := 'a' <= arg.Type[0] && arg.Type[0] <= 'z'
+		var qualify func(string) string
+		qualify = func(typ string) string {
+			n := len(typ)
+			// Handle recursive types
+			if strings.HasPrefix(typ, "map[") {
+				bracketCount := 0
+				var end int
+				for i, c := range typ[4:] {
+					if c == '[' {
+						bracketCount++
+					} else if c == ']' {
+						bracketCount--
+					}
+					if bracketCount == -1 {
+						end = i
+						break
+					}
+				}
+				return "map[" + qualify(typ[4:4+end]) + "]" + qualify(typ[5+end:])
+			} else if strings.HasPrefix(typ, "[") {
+				splitIdx := strings.Index(typ, "]")
+				return typ[0:splitIdx+1] + qualify(typ[splitIdx+1:])
+			} else if strings.HasPrefix(typ, "*") {
+				return "*" + qualify(typ[1:])
+			} else if strings.HasPrefix(typ, "...") {
+				return "..." + qualify(typ[3:])
+			} else if genericStart := strings.Index(typ, "["); genericStart != -1 {
+				// We know the last character is a ] as it's a generic and have handled
+				// other composite types above.
+				genericVars := strings.Split(typ[genericStart+1:n-1], ",")
+				for i, g := range genericVars {
+					genericVars[i] = qualify(strings.TrimSpace(g))
+				}
+				return qualify(typ[:genericStart]) + "[" + strings.Join(genericVars, ", ") + "]"
+			}
+			isLower := 'a' <= typ[0] && typ[0] <= 'z'
 			// . implies package qualification, lowercase implies built-in
-			if strings.Contains(arg.Type, ".") || isLower {
-				return arg
+			if strings.Contains(typ, ".") || isLower {
+				return typ
 			}
 			// handle case where we return a generic defined by repository
 			for _, g := range r.GenericsVariableList() {
-				if arg.Type == g {
-					return arg
+				if typ == g {
+					return typ
 				}
 			}
-			return &Param{
-				Ident: arg.Ident,
-				Type:  r.Package + "." + arg.Type,
-			}
+			return r.Package + "." + typ
 		}
 		for i, arg := range method.Params {
 			arg := arg
-			args[i] = qualify(arg)
+			args[i] = &Param{
+				Ident: arg.Ident,
+				Type:  qualify(arg.Type),
+			}
 		}
 		for i, arg := range method.Returns {
 			arg := arg
-			returns[i] = qualify(arg)
+			returns[i] = &Param{
+				Ident: arg.Ident,
+				Type:  qualify(arg.Type),
+			}
 		}
 		if len(args) == 0 {
 			args = nil
@@ -620,15 +658,22 @@ func collectImports(
 }
 
 func formatImports(filename string, src []byte) (_ string, err error) {
+	if cli.Verbose {
+		slog.Debug(
+			"formatting file",
+			slog.String("filename", filename),
+			slog.String("src", string(src)),
+		)
+	}
 	cmd := exec.Command("gofumpt")
 	cmd.Stdin = bytes.NewReader(src)
 	src, err = cmd.Output()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to run gofumpt: %w", err)
 	}
 	formattedSrc, err := imports.Process(filename, src, nil)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to process imports: %w", err)
 	}
 	return string(formattedSrc), nil
 }

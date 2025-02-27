@@ -66,12 +66,52 @@ func TestNewMethods(t *testing.T) {
 				},
 			},
 		},
+		{
+			"composite types are qualified correctly",
+			RepositoryImpl{
+				Repository: Repository{
+					Package: "api",
+					Methods: []*Method{
+						{
+							Ident: "A",
+							Params: Params{
+								{Ident: "map", Type: "map[Foo]Bar"},
+								{Ident: "slice", Type: "[2]Foo"},
+								{Ident: "pointer", Type: "*Foo"},
+								{Ident: "variadic", Type: "...Foo"},
+								{Ident: "generic", Type: "Foo[Bar, Baz[Bam]]"},
+								{Ident: "allTogether", Type: "...map[Foo[Bar]][]**Bam"},
+							},
+							Returns: Params{},
+						},
+					},
+				},
+				ImplMethods: []string{},
+			},
+			[]*Method{
+				{
+					Ident: "A",
+					Params: Params{
+						{Ident: "map", Type: "map[api.Foo]api.Bar"},
+						{Ident: "slice", Type: "[2]api.Foo"},
+						{Ident: "pointer", Type: "*api.Foo"},
+						{Ident: "variadic", Type: "...api.Foo"},
+						{Ident: "generic", Type: "api.Foo[api.Bar, api.Baz[api.Bam]]"},
+						{Ident: "allTogether", Type: "...map[api.Foo[api.Bar]][]**api.Bam"},
+					},
+				},
+			},
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			require := require.New(t)
 			got := test.have.NewMethods()
 			require.Len(got, len(test.expect))
-			require.ElementsMatch(got, test.expect)
+			for i, method := range got {
+				require.Equal(test.expect[i].Ident, method.Ident)
+				require.ElementsMatch(test.expect[i].Params, method.Params)
+				require.ElementsMatch(test.expect[i].Returns, method.Returns)
+			}
 		})
 	}
 }
