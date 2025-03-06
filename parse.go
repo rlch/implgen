@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/danielgtaylor/casing"
 	sitter "github.com/smacker/go-tree-sitter"
 	tsgo "github.com/smacker/go-tree-sitter/golang"
 )
@@ -389,7 +390,7 @@ func parseRepositoryImpls(
 	}
 
 	defaultImplFilename := func(repo *RepositoryImpl) string {
-		return strings.ToLower(repo.Name()) + "_impl.go"
+		return casing.Snake(repo.Name()) + "_impl.go"
 	}
 	implPackageName := repos[0].Package + "impl"
 	impls := make([]*RepositoryImpl, len(repos))
