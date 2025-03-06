@@ -6,6 +6,13 @@ type Entity[T any] struct {
 
 type Repository[T any] interface {
 	Get(id string) (Entity[T], error)
+	Gett(
+		a string,
+		b int, c bool,
+	) (
+		string,
+		error,
+	)
 }
 
 type NoGenericsRepository interface {

@@ -261,6 +261,42 @@ func TestParseRepositories(t *testing.T) {
 			},
 		},
 		{
+			"Multi-line method declarations",
+			`
+      package main
+
+      type Repository interface {
+        A(
+          a int, 
+          b string, c bool
+        ) (
+          int,
+          error,
+      )
+      }
+      `,
+			[]*Repository{
+				{
+					Package: "main",
+					Ident:   "Repository",
+					Methods: []*Method{
+						{
+							Ident: "A",
+							Params: []*Param{
+								{Ident: "a", Type: "int"},
+								{Ident: "b", Type: "string"},
+								{Ident: "c", Type: "bool"},
+							},
+							Returns: []*Param{
+								{Type: "int"},
+								{Type: "error"},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
 			"multiple Repository with methods",
 			`
       package main
