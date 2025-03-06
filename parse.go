@@ -314,12 +314,12 @@ func parseParams(src string) Params {
 		c := src[i]
 		if c == '(' {
 			_, end := getEnclosingBrackets(src[i:], '(', ')')
-			i = end + 1
+			i += end + 1
 			continue
 		}
 		if c == '[' {
 			_, end := getEnclosingBrackets(src[i:], '[', ']')
-			i = end + 1
+			i += end + 1
 			continue
 		}
 		if c == ',' {

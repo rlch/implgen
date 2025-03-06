@@ -32,3 +32,12 @@ func (r *repositoryImpl[T]) Get(id string) (_ generic.Entity[T], err error) {
 	}()
 	panic("TODO: implement generic.Repository.Get")
 }
+
+func (r *repositoryImpl[T]) Gett(a string, b int, c bool) (_ string, err error) {
+	defer func() {
+		if err != nil {
+			err = eris.Wrap(err, "generic.Repository.Gett")
+		}
+	}()
+	panic("TODO: implement generic.Repository.Gett")
+}

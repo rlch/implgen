@@ -8,9 +8,8 @@ package internal
 
 import (
 	genericimpl "example/internal/generic"
-	nestedimpl "example/internal/waltuh/nested"
-
 	waltuhimpl "example/internal/waltuh"
+	nestedimpl "example/internal/waltuh/nested"
 )
 
 var RepositoryFactories = []any{
