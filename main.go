@@ -7,20 +7,23 @@ import (
 	"log/slog"
 	"os"
 	"path"
+	"path/filepath"
 	"runtime/debug"
 	"time"
 
 	"github.com/alecthomas/kong"
+	"github.com/gobwas/glob"
 	"github.com/lmittmann/tint"
 )
 
 var (
 	cli struct {
-		Root    string `type:"path" help:"Root directory to generate the api/impl tree from." default:"."`
-		API     string `type:"string" help:"Directory to API definitions, relative to root." default:"api"`
-		Impl    string `type:"string" help:"Directory to implementation files, relative to root." default:"internal"`
-		Dig     bool   `help:"Use dig for dependency injection instead of fx."`
-		Verbose bool   `help:"Enable verbose logging." short:"v"`
+		Root    string   `type:"path" help:"Root directory to generate the api/impl tree from." default:"."`
+		API     string   `type:"string" help:"Directory to API definitions, relative to root." default:"api"`
+		Impl    string   `type:"string" help:"Directory to implementation files, relative to root." default:"internal"`
+		Focus   []string `type:"string" help:"Focus generating specific packages relative to API using a glob. Does not generate stub if provided."`
+		Dig     bool     `help:"Use dig for dependency injection instead of fx."`
+		Verbose bool     `help:"Enable verbose logging." short:"v"`
 	}
 	fset = token.NewFileSet()
 )
@@ -70,7 +73,34 @@ func run() error {
 		return fmt.Errorf("failed to walk API directory: %w", err)
 	}
 	allRepImpls := []*RepositoryImpl{}
+	focusGlobs := make([]glob.Glob, len(cli.Focus))
+	for i, focus := range cli.Focus {
+		glob, err := glob.Compile(focus)
+		if err != nil {
+			return fmt.Errorf("failed to compile glob %s: %w", focus, err)
+		}
+		focusGlobs[i] = glob
+	}
+
 	for apiPackagePath, packageFiles := range apiFiles {
+		match := len(cli.Focus) == 0
+		for _, glob := range focusGlobs {
+			relToAPI, err := filepath.Rel(cli.API, apiPackagePath)
+			if err != nil {
+				return fmt.Errorf("failed to compute relative path to API: %w", err)
+			}
+			if glob.Match(relToAPI) {
+				match = true
+				break
+			}
+		}
+		if !match {
+			slog.Debug(
+				"Skipping package",
+				slog.String("api_path", apiPackagePath),
+			)
+			continue
+		}
 		repos, err := parseRepositoriesForPackage(
 			ctx,
 			fsys,
@@ -160,18 +190,22 @@ func run() error {
 			)
 		}
 	}
-	stubSrc, err := generateRepositoryStubFile(fsys, cli.Impl, allRepImpls...)
-	if err != nil {
-		return fmt.Errorf("failed to generate repository stub file: %w", err)
+	if len(cli.Focus) == 0 {
+		stubSrc, err := generateRepositoryStubFile(fsys, cli.Impl, allRepImpls...)
+		if err != nil {
+			return fmt.Errorf("failed to generate repository stub file: %w", err)
+		}
+		if err := os.WriteFile(
+			path.Join(cli.Impl, "repositories.go"),
+			[]byte(stubSrc),
+			0644,
+		); err != nil {
+			return fmt.Errorf("failed to write repository stub file: %w", err)
+		}
+		slog.Debug("Generated repository stub file")
+	} else {
+		slog.Debug("Focus provided, skipping stub generation")
 	}
-	if err := os.WriteFile(
-		path.Join(cli.Impl, "repositories.go"),
-		[]byte(stubSrc),
-		0644,
-	); err != nil {
-		return fmt.Errorf("failed to write repository stub file: %w", err)
-	}
-	slog.Debug("Generated repository stub file")
 	return nil
 }
 

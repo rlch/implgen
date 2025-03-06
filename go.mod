@@ -4,6 +4,7 @@ go 1.22.1
 
 require (
 	github.com/alecthomas/kong v0.9.0
+	github.com/gobwas/glob v0.2.3
 	github.com/lmittmann/tint v1.0.5
 	github.com/smacker/go-tree-sitter v0.0.0-20240625050157-a31a98a7c0f6
 	github.com/stretchr/testify v1.7.4

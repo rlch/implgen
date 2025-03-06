@@ -9,7 +9,6 @@ import (
 	"go/parser"
 	"io"
 	"io/fs"
-	"log/slog"
 	"os/exec"
 	"path"
 	"path/filepath"
@@ -656,13 +655,6 @@ func collectImports(
 }
 
 func formatImports(filename string, src []byte) (_ string, err error) {
-	if cli.Verbose {
-		slog.Debug(
-			"formatting file",
-			slog.String("filename", filename),
-			slog.String("src", string(src)),
-		)
-	}
 	cmd := exec.Command("gofumpt")
 	cmd.Stdin = bytes.NewReader(src)
 	src, err = cmd.Output()
