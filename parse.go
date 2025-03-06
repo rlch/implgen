@@ -176,6 +176,7 @@ func parseRepositories(src []byte, tree *sitter.Tree) (repos []*Repository, err 
        result: [
         (parameter_list)
         (type_identifier)
+        (qualified_type)
        ]? @result)?))
     `), lang)
 	if err != nil {

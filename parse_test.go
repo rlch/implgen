@@ -212,6 +212,29 @@ func TestParseRepositories(t *testing.T) {
 			},
 		},
 		{
+			"Methods using context",
+			`
+      package main
+
+      type Repository interface {
+        A(ctx context.Context) context.Context
+      }
+      `,
+			[]*Repository{
+				{
+					Package: "main",
+					Ident:   "Repository",
+					Methods: []*Method{
+						{
+							Ident:   "A",
+							Params:  []*Param{{Ident: "ctx", Type: "context.Context"}},
+							Returns: []*Param{{Type: "context.Context"}},
+						},
+					},
+				},
+			},
+		},
+		{
 			"Ignores whitespace",
 			`
       package main
