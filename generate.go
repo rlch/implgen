@@ -40,25 +40,15 @@ func (r RepositoryImpl) NewMethods() []*Method {
 		}
 		args := make(Params, len(method.Params))
 		returns := make(Params, len(method.Returns))
+
 		var qualify func(string) string
 		qualify = func(typ string) string {
 			n := len(typ)
+			typ = strings.TrimSpace(typ)
 			// Handle recursive types
 			if strings.HasPrefix(typ, "map[") {
-				bracketCount := 0
-				var end int
-				for i, c := range typ[4:] {
-					if c == '[' {
-						bracketCount++
-					} else if c == ']' {
-						bracketCount--
-					}
-					if bracketCount == -1 {
-						end = i
-						break
-					}
-				}
-				return "map[" + qualify(typ[4:4+end]) + "]" + qualify(typ[5+end:])
+				start, end := getEnclosingBrackets(typ, '[', ']')
+				return "map[" + qualify(typ[start+1:end]) + "]" + qualify(typ[end+1:])
 			} else if strings.HasPrefix(typ, "[") {
 				splitIdx := strings.Index(typ, "]")
 				return typ[0:splitIdx+1] + qualify(typ[splitIdx+1:])
@@ -66,6 +56,14 @@ func (r RepositoryImpl) NewMethods() []*Method {
 				return "*" + qualify(typ[1:])
 			} else if strings.HasPrefix(typ, "...") {
 				return "..." + qualify(typ[3:])
+			} else if strings.HasPrefix(typ, "func(") {
+				start, end := getEnclosingBrackets(typ, '(', ')')
+				args := parseParams(typ[start+1 : end])
+				returns := parseParams(typ[end+1:])
+				for _, p := range append(args, returns...) {
+					p.Type = qualify(p.Type)
+				}
+				return "func(" + args.ParamsSrc() + ") " + returns.ReturnsSrc()
 			} else if genericStart := strings.Index(typ, "["); genericStart != -1 {
 				// We know the last character is a ] as it's a generic and have handled
 				// other composite types above.
@@ -144,7 +142,7 @@ func (p Params) Named() bool {
 	return false
 }
 
-func (p Params) Qualify() {
+func (p Params) QualifyNames() {
 	hasCtx := p.HasCtx()
 	hasErr := p.HasError()
 	named := p.Named()
@@ -166,7 +164,7 @@ func (p Params) Qualify() {
 }
 
 func (p Params) ParamsSrc() (s string) {
-	p.Qualify()
+	p.QualifyNames()
 	n := len(p)
 	for i, param := range p {
 		if i > 0 {
@@ -184,7 +182,7 @@ func (p Params) ParamsSrc() (s string) {
 }
 
 func (p Params) ReturnsSrc() string {
-	p.Qualify()
+	p.QualifyNames()
 	src := p.ParamsSrc()
 	if p.Named() || len(p) > 1 {
 		return "(" + src + ")"

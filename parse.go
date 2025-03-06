@@ -267,35 +267,90 @@ func parseRepositories(src []byte, tree *sitter.Tree) (repos []*Repository, err 
 	return
 }
 
-func parseParams(src string) []*Param {
+func getEnclosingBrackets(s string, left, right rune) (start, end int) {
+	bracketCount := 0
+	start = strings.Index(s, string(left))
+	for i, c := range s[start+1:] {
+		if c == left {
+			bracketCount++
+		} else if c == right {
+			bracketCount--
+		}
+		if bracketCount == -1 {
+			return start, start + 1 + i
+		}
+	}
+	return -1, -1
+}
+
+func parseParams(src string) Params {
+	src = strings.TrimSpace(src)
 	if src == "" {
 		return nil
 	}
 	if src[0] == '(' {
 		src = src[1 : len(src)-1]
 	}
-	parts := strings.Split(strings.TrimSpace(src), ",")
-	if len(parts) == 0 || (len(parts) == 1 && parts[0] == "") {
+	// We need to handle arguments accepting a comma so can't just split on a
+	// comma.
+	args := []string{}
+	var (
+		lastComma int = -1
+		i         int
+	)
+	for {
+		if i >= len(src) {
+			// Single argument
+			if lastComma == -1 {
+				args = append(args, src)
+			} else {
+				args = append(args, src[lastComma+1:])
+			}
+			break
+		}
+		c := src[i]
+		if c == '(' {
+			_, end := getEnclosingBrackets(src[i:], '(', ')')
+			i = end + 1
+			continue
+		}
+		if c == '[' {
+			_, end := getEnclosingBrackets(src[i:], '[', ']')
+			i = end + 1
+			continue
+		}
+		if c == ',' {
+			args = append(args, src[lastComma+1:i])
+			lastComma = i
+		}
+		i++
+	}
+	if len(args) == 0 || (len(args) == 1 && args[0] == "") {
 		return nil
 	}
 	named := false
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-		if named || len(strings.Split(part, " ")) > 1 {
+	for _, arg := range args {
+		arg = strings.TrimSpace(arg)
+		parts := strings.Split(arg, " ")
+		if strings.HasPrefix(parts[0], "func(") {
+			break
+		}
+		if len(parts) > 1 {
 			named = true
+			break
 		}
 	}
 	if named {
-		return parseNamedParams(parts)
+		return parseNamedParams(args)
 	}
-	params := make([]*Param, len(parts))
-	for i, part := range parts {
+	params := make([]*Param, len(args))
+	for i, part := range args {
 		params[i] = &Param{Type: strings.TrimSpace(part)}
 	}
 	return params
 }
 
-func parseNamedParams(parts []string) []*Param {
+func parseNamedParams(parts []string) Params {
 	params := make([]*Param, len(parts))
 	untypedFrom := -1
 	for i, part := range parts {

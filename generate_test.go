@@ -76,10 +76,15 @@ func TestNewMethods(t *testing.T) {
 							Ident: "A",
 							Params: Params{
 								{Ident: "map", Type: "map[Foo]Bar"},
-								{Ident: "slice", Type: "[2]Foo"},
+								{Ident: "slice", Type: "[]Foo"},
+								{Ident: "array", Type: "[2]Foo"},
 								{Ident: "pointer", Type: "*Foo"},
 								{Ident: "variadic", Type: "...Foo"},
 								{Ident: "generic", Type: "Foo[Bar, Baz[Bam]]"},
+								{Ident: "func", Type: "func(Foo) Bar"},
+								{Ident: "funcNamed", Type: "func(a Foo, b Bar) (foo Foo, bar Bar)"},
+								{Ident: "funcUnamed", Type: "func(Foo, Bar) (Foo, Bar)"},
+								{Ident: "funcFunc", Type: "func(func(Foo) Bar) func(Foo) Bar"},
 								{Ident: "allTogether", Type: "...map[Foo[Bar]][]**Bam"},
 							},
 							Returns: Params{},
@@ -93,10 +98,15 @@ func TestNewMethods(t *testing.T) {
 					Ident: "A",
 					Params: Params{
 						{Ident: "map", Type: "map[api.Foo]api.Bar"},
-						{Ident: "slice", Type: "[2]api.Foo"},
+						{Ident: "slice", Type: "[]api.Foo"},
+						{Ident: "array", Type: "[2]api.Foo"},
 						{Ident: "pointer", Type: "*api.Foo"},
 						{Ident: "variadic", Type: "...api.Foo"},
 						{Ident: "generic", Type: "api.Foo[api.Bar, api.Baz[api.Bam]]"},
+						{Ident: "func", Type: "func(api.Foo) api.Bar"},
+						{Ident: "funcNamed", Type: "func(a api.Foo, b api.Bar) (foo api.Foo, bar api.Bar)"},
+						{Ident: "funcUnamed", Type: "func(api.Foo, api.Bar) (api.Foo, api.Bar)"},
+						{Ident: "funcFunc", Type: "func(func(api.Foo) api.Bar) func(api.Foo) api.Bar"},
 						{Ident: "allTogether", Type: "...map[api.Foo[api.Bar]][]**api.Bam"},
 					},
 				},
@@ -735,7 +745,9 @@ var x something.Something
 			},
 			`package internal
 
-import "somewhere/something"
+import (
+	"somewhere/something"
+)
 
 type repositoryImpl struct{}
 
