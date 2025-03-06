@@ -291,7 +291,6 @@ func parseParams(src string) Params {
 	if src[0] == '(' {
 		src = src[1 : len(src)-1]
 	}
-	fmt.Println(src)
 	// We need to handle arguments accepting a comma so can't just split on a
 	// comma.
 	args := []string{}
