@@ -1,669 +1,184 @@
 package main
 
 import (
-	"bufio"
-	"bytes"
-	"errors"
+	"context"
 	"fmt"
-	"go/ast"
-	"go/parser"
-	"io"
-	"io/fs"
-	"os/exec"
+	"log/slog"
+	"os"
 	"path"
 	"path/filepath"
-	"sort"
-	"strconv"
-	"strings"
-	"text/template"
 
-	"golang.org/x/tools/imports"
+	"github.com/gobwas/glob"
+	"github.com/urfave/cli/v3"
 )
 
-func (r RepositoryImpl) ImplTestPackage() string {
-	return r.ImplPackage + "_test"
-}
-
-func (r RepositoryImpl) NewMethods() []*Method {
-	methods := []*Method{}
-	for _, method := range r.Methods {
-		existing := false
-		for _, existingMethod := range r.ImplMethods {
-			if method.Ident == existingMethod {
-				existing = true
-				break
-			}
-		}
-		if existing {
-			continue
-		}
-		args := make(Params, len(method.Params))
-		returns := make(Params, len(method.Returns))
-
-		var qualify func(string) string
-		qualify = func(typ string) string {
-			n := len(typ)
-			typ = strings.TrimSpace(typ)
-			// Handle recursive types
-			if strings.HasPrefix(typ, "map[") {
-				start, end := getEnclosingBrackets(typ, '[', ']')
-				return "map[" + qualify(typ[start+1:end]) + "]" + qualify(typ[end+1:])
-			} else if strings.HasPrefix(typ, "[") {
-				splitIdx := strings.Index(typ, "]")
-				return typ[0:splitIdx+1] + qualify(typ[splitIdx+1:])
-			} else if strings.HasPrefix(typ, "*") {
-				return "*" + qualify(typ[1:])
-			} else if strings.HasPrefix(typ, "...") {
-				return "..." + qualify(typ[3:])
-			} else if strings.HasPrefix(typ, "func(") {
-				start, end := getEnclosingBrackets(typ, '(', ')')
-				args := parseParams(typ[start+1 : end])
-				returns := parseParams(typ[end+1:])
-				for _, p := range append(args, returns...) {
-					p.Type = qualify(p.Type)
-				}
-				return "func(" + args.ParamsSrc() + ") " + returns.ReturnsSrc()
-			} else if genericStart := strings.Index(typ, "["); genericStart != -1 {
-				// We know the last character is a ] as it's a generic and have handled
-				// other composite types above.
-				genericVars := strings.Split(typ[genericStart+1:n-1], ",")
-				for i, g := range genericVars {
-					genericVars[i] = qualify(strings.TrimSpace(g))
-				}
-				return qualify(typ[:genericStart]) + "[" + strings.Join(genericVars, ", ") + "]"
-			}
-			isLower := 'a' <= typ[0] && typ[0] <= 'z'
-			// . implies package qualification, lowercase implies built-in
-			if strings.Contains(typ, ".") || isLower {
-				return typ
-			}
-			// handle case where we return a generic defined by repository
-			for _, g := range r.GenericsVariableList() {
-				if typ == g {
-					return typ
-				}
-			}
-			return r.Package + "." + typ
-		}
-		for i, arg := range method.Params {
-			arg := arg
-			args[i] = &Param{
-				Ident: arg.Ident,
-				Type:  qualify(arg.Type),
-			}
-		}
-		for i, arg := range method.Returns {
-			arg := arg
-			returns[i] = &Param{
-				Ident: arg.Ident,
-				Type:  qualify(arg.Type),
-			}
-		}
-		if len(args) == 0 {
-			args = nil
-		}
-		if len(returns) == 0 {
-			returns = nil
-		}
-		methods = append(methods, &Method{
-			Ident:   method.Ident,
-			Params:  args,
-			Returns: returns,
-		})
-	}
-	return methods
-}
-
-func (p Params) HasCtx() bool {
-	for _, param := range p {
-		if param.Type == "context.Context" {
-			return true
-		}
-	}
-	return false
-}
-
-func (p Params) HasError() bool {
-	for _, param := range p {
-		if param.Type == "error" {
-			return true
-		}
-	}
-	return false
-}
-
-func (p Params) Named() bool {
-	for _, param := range p {
-		if param.Ident != "" {
-			return true
-		}
-	}
-	return false
-}
-
-func (p Params) QualifyNames() {
-	hasCtx := p.HasCtx()
-	hasErr := p.HasError()
-	named := p.Named()
-	if !hasCtx && !hasErr && !named {
-		return
-	}
-	for _, param := range p {
-		switch param.Type {
-		case "context.Context":
-			param.Ident = "ctx"
-		case "error":
-			param.Ident = "err"
-		default:
-			if param.Ident == "" {
-				param.Ident = "_"
-			}
-		}
-	}
-}
-
-func (p Params) ParamsSrc() (s string) {
-	p.QualifyNames()
-	n := len(p)
-	for i, param := range p {
-		if i > 0 {
-			s += ", "
-		}
-		if i < n-1 && param.Type == p[i+1].Type {
-			s += param.Ident
-		} else if param.Ident != "" {
-			s += param.Ident + " " + param.Type
-		} else {
-			s += param.Type
-		}
-	}
-	return
-}
-
-func (p Params) ReturnsSrc() string {
-	p.QualifyNames()
-	src := p.ParamsSrc()
-	if p.Named() || len(p) > 1 {
-		return "(" + src + ")"
-	}
-	return src
-}
-
-func (r Repository) QualifyString(s string) string {
-	name := r.Name()
-	if name == "Repository" {
-		return s
-	}
-	return name + s
-}
-
-func (r Repository) Name() string {
-	if len(r.Ident) > 10 && strings.HasSuffix(r.Ident, "Repository") {
-		return r.Ident[:len(r.Ident)-10]
-	}
-	return r.Ident
-}
-
-func (r Repository) ImplName() string {
-	if r.Ident == "" {
-		return ""
-	}
-	name := r.Ident
-	return strings.ToLower(string(name[0])) + name[1:] + "Impl"
-}
-
-func (r Repository) QualifiedName() string {
-	if r.Package == "" {
-		return r.Ident
-	}
-	return r.Package + "." + r.Ident
-}
-
-const generateMethodTemplate = `
-  func (r *{{ .Repository.ImplName }}{{ .Repository.GenericsInstance }}) {{ .Method.Ident }}({{ .Method.Params.ParamsSrc }}){{ pad .Method.Returns.ReturnsSrc }}{
-  {{- if .Method.Params.HasCtx }}
-    ctx, span := otel.GetTracerProvider().Tracer("{{ .Repository.Package }}").Start(ctx, "{{ .Repository.Name }}.{{ .Method.Ident }}")
-    {{- if .Method.Returns.HasError }}
-    defer func() {
-      if err != nil {
-        err = eris.Wrap(err, "{{ .Repository.QualifiedName }}.{{ .Method.Ident }}")
-        span.SetStatus(codes.Error, "")
-        span.RecordError(err)
-      }
-      span.End()
-    }()
-    {{- else }}
-    defer span.End()
-    {{- end }}
-    _ = ctx
-  {{- else }}
-    {{- if .Method.Returns.HasError }}
-    defer func() {
-      if err != nil {
-        err = eris.Wrap(err, "{{ .Repository.QualifiedName }}.{{ .Method.Ident }}")
-      }
-    }()
-    {{- end }}
-  {{- end }}
-    panic("TODO: implement {{ .Repository.QualifiedName }}.{{ .Method.Ident }}")
-  }
-`
-
-func generateMethodImpl(repository Repository, method Method) (string, error) {
-	tmpl, err := template.
-		New("generateMethodTemplate").
-		Funcs(template.FuncMap{
-			"pad": func(s string) string {
-				if s == "" {
-					return " "
-				}
-				return " " + s + " "
-			},
-		}).
-		Parse(generateMethodTemplate)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse template: %w", err)
-	}
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, struct {
-		Repository
-		Method
-	}{repository, method}); err != nil {
-		return "", fmt.Errorf("failed to execute template: %w", err)
-	}
-	return buf.String(), nil
-}
-
-// generateRepositoryImpl generates the method and struct declarations for a single repository.
-func generateRepositoryImpl(repository Repository) (string, error) {
-	diPkg := "fx"
-	options := `
-var {{ .Repository.QualifyString "Options" }} = fx.Options(
-	fx.Provide(
-		New{{ .Repository.Ident }},
-	),
-)
-`
-	if useDig {
-		diPkg = "dig"
-		options = ""
-	} else if repository.Generics != "" {
-		options = ""
-	}
-	generateRepositoryImplTemplate := `
-type {{ .Repository.QualifyString "Dependencies" }}{{ .Repository.Generics }} struct {
-  ` + diPkg + `.In
-	// Add dependencies here
-}
-` + options + `
-func New{{ .Repository.Ident }}{{ .Repository.Generics }}(deps {{ .Repository.QualifyString "Dependencies" }}{{ .Repository.GenericsInstance }}) {{ .Repository.Package }}.{{ .Repository.Ident }}{{ .Repository.GenericsInstance }} {
-	return &{{ .Repository.ImplName }}{{ .Repository.GenericsInstance }}{
-    {{ .Repository.QualifyString "Dependencies" }}: deps,
-	}
-}
-
-type {{ .Repository.ImplName }}{{ .Repository.Generics }} struct {
-  {{ .Repository.QualifyString "Dependencies" }}{{ .Repository.GenericsInstance }}
-}
-`
-	tmpl, err := template.
-		New("generateRepositoryImplTemplate").
-		Parse(generateRepositoryImplTemplate)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse template: %w", err)
-	}
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, struct {
-		Repository
-	}{repository}); err != nil {
-		return "", fmt.Errorf("failed to execute template: %w", err)
-	}
-	return buf.String(), nil
-}
-
-// generateRepositoryImplsForFile generates the repository implementations for a single file.
-//
-// All RepositoryImpl's are assumed to be for the same file as repositories[0].
-func generateRepositoryImplsForFile(
-	fsys fs.FS,
-	filepath string,
-	repositories []*RepositoryImpl,
-) (_ string, err error) {
-	if len(repositories) == 0 {
-		return "", nil
-	}
-	var (
-		originalSrc        []byte
-		originalSrcScanner *bufio.Scanner
-		src                bytes.Buffer
-		astFile            *ast.File
+func generate(ctx context.Context, cmd *cli.Command) error {
+	fsys := os.DirFS(fRoot)
+	slog.Debug(
+		"Crawling API directory",
+		slog.String("root", fRoot),
+		slog.String("api_root", fApi),
+		slog.String("impl_root", fImpl),
 	)
-	file, err := fsys.Open(filepath)
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return "", err
-	}
-	// Write package declaration to src. If the file does not exist, write a new package declaration.
-	if file != nil {
-		defer file.Close()
-		originalSrc, err = io.ReadAll(file)
-		if err != nil {
-			return "", err
-		}
-		astFile, err = parser.ParseFile(fset, "", originalSrc, parser.ImportsOnly)
-		if err != nil {
-			return "", err
-		}
-		originalSrcScanner = bufio.NewScanner(bytes.NewReader(originalSrc))
-		for originalSrcScanner.Scan() {
-			line := originalSrcScanner.Text()
-			src.WriteString(line + "\n")
-			if strings.HasPrefix(line, "package") {
-				break
-			}
-		}
-	} else {
-		packageDecl := fmt.Sprintf(`
-// This file will be automatically regenerated based on the API. Any repository implementations
-// will be copied through when generating and new methods will be added to the end.
-package %s
-`, repositories[0].ImplPackage)
-		src.WriteString(strings.TrimPrefix(packageDecl, "\n"))
-	}
-
-	// Add imports to src
-	requiredImports, err := collectImports(
-		fsys,
-		astFile,
-		true,
-		false,
-		nil,
-		repositories...,
-	)
+	apiFiles, err := crawlAPI(fsys, fApi)
 	if err != nil {
-		return "", err
+		return fmt.Errorf("failed to walk API directory: %w", err)
 	}
-	for _, imp := range requiredImports {
-		src.WriteString("import ")
-		if imp.Name != "" {
-			src.WriteString(imp.Name + " ")
-		}
-		src.WriteString(strconv.Quote(imp.Path) + "\n")
-	}
-
-	// Add the rest of the original source code.
-	if originalSrcScanner != nil {
-		for originalSrcScanner.Scan() {
-			src.WriteString(originalSrcScanner.Text() + "\n")
-		}
-	}
-
-	// Append new repository declarations
-	for _, repository := range repositories {
-		if !repository.IsNew {
-			continue
-		}
-		impl, err := generateRepositoryImpl(repository.Repository)
+	allRepImpls := []*RepositoryImpl{}
+	focusGlobs := make([]glob.Glob, len(fFocus))
+	for i, focus := range fFocus {
+		glob, err := glob.Compile(focus)
 		if err != nil {
-			return "", err
+			return fmt.Errorf("failed to compile glob %s: %w", focus, err)
 		}
-		src.WriteString("\n" + impl)
+		focusGlobs[i] = glob
 	}
 
-	// Append new methods
-	for _, repository := range repositories {
-		for _, newMethod := range repository.NewMethods() {
-			methodImpl, err := generateMethodImpl(repository.Repository, *newMethod)
+	for apiPackagePath, packageFiles := range apiFiles {
+		match := len(fFocus) == 0
+		for _, glob := range focusGlobs {
+			relToAPI, err := filepath.Rel(fApi, apiPackagePath)
 			if err != nil {
-				return "", err
+				return fmt.Errorf("failed to compute relative path to API: %w", err)
 			}
-			src.WriteString("\n" + methodImpl)
-		}
-	}
-	return formatImports(filepath, src.Bytes())
-}
-
-func generateRepositoryStubFile(
-	fsys fs.FS,
-	packagePath string,
-	repositories ...*RepositoryImpl,
-) (string, error) {
-	type MockDirective struct {
-		Src          string
-		Dst          string
-		ImplPackage  string
-		Repositories []string
-	}
-	var templateData struct {
-		Package        string
-		Imports        []Import
-		Repositories   []*RepositoryImpl
-		MockDirectives []MockDirective
-	}
-	sort.Slice(repositories, func(i, j int) bool {
-		a := repositories[i]
-		b := repositories[j]
-		if a.ImplPackage == b.ImplPackage {
-			if a.Ident == "Repository" {
-				return true
+			if glob.Match(relToAPI) {
+				match = true
+				break
 			}
-			if b.Ident == "Repository" {
-				return false
-			}
-			return a.Ident < b.Ident
 		}
-		return a.ImplPackage < b.ImplPackage
-	})
-
-	mocked := map[string]bool{}
-	for _, repositories := range groupByPackage(repositories) {
-		repository := repositories[0]
-		src := repository.PackagePath
-		if _, done := mocked[src]; done {
-			continue
-		}
-		var err error
-		src, err = filepath.Rel(cli.Impl, src)
-		if err != nil {
-			return "", fmt.Errorf("failed to get relative path: %w", err)
-		}
-		mocked[src] = true
-		dst := path.Join(repository.ImplPackagePath, "mocks.go")
-		dst, err = filepath.Rel(cli.Impl, dst)
-		if err != nil {
-			return "", fmt.Errorf("failed to get relative path: %w", err)
-		}
-		repositoryIdents := make([]string, len(repositories))
-		for i, repository := range repositories {
-			repositoryIdents[i] = repository.Ident
-		}
-		sort.Slice(repositoryIdents, func(i, j int) bool {
-			return repositoryIdents[i] < repositoryIdents[j]
-		})
-		templateData.MockDirectives = append(templateData.MockDirectives, MockDirective{
-			Src:          src,
-			Dst:          dst,
-			ImplPackage:  repository.ImplPackage,
-			Repositories: repositoryIdents,
-		})
-	}
-	sort.Slice(templateData.MockDirectives, func(i, j int) bool {
-		return templateData.MockDirectives[i].ImplPackage < templateData.MockDirectives[j].ImplPackage
-	})
-
-	templateData.Repositories = repositories
-	pkgImport, pkgAlias, err := loadLocalPackage(fsys, nil, packagePath)
-	if err != nil {
-		return "", err
-	}
-	if pkgAlias != "" {
-		templateData.Package = pkgAlias
-	} else {
-		templateData.Package = path.Base(pkgImport)
-	}
-	imports, err := collectImports(
-		fsys,
-		nil,
-		false,
-		true,
-		nil,
-		repositories...,
-	)
-	if err != nil {
-		return "", err
-	}
-	templateData.Imports = imports
-
-	var repositoryStubFileTemplate string
-	if useDig {
-		repositoryStubFileTemplate = `
-// DO NOT MODIFY
-// This file will be automatically regenerated based on the API.
-package {{ .Package }}
-{{ range .MockDirectives -}}
-//go:generate moq -out={{ .Dst }} -pkg={{ .ImplPackage }} -rm -skip-ensure {{ .Src }} {{ range .Repositories }}{{.}} {{ end }}
-{{ end -}}
-
-{{ range .Imports }}
-import {{ .Name }} "{{ .Path }}"
-{{- end }}
-
-var RepositoryFactories = []any{
-{{ range .Repositories -}}
-  {{ if not .Generics -}} 
-  {{ .ImplPackage }}.New{{ .Ident }},
-  {{- end }}
-{{ end -}}
-}
-`
-	} else {
-		repositoryStubFileTemplate = `
-// DO NOT MODIFY
-// This file will be automatically regenerated based on the API.
-package {{ .Package }}
-{{ range .MockDirectives -}}
-//go:generate moq -out={{ .Dst }} -pkg={{ .ImplPackage }} -rm -skip-ensure {{ .Src }} {{ range .Repositories }}{{.}} {{ end }}
-{{ end -}}
-
-{{ range .Imports }}
-import {{ .Name }} "{{ .Path }}"
-{{- end }}
-
-var Repositories = fx.Options(
-{{ range .Repositories -}}
-  {{ if not .Generics -}} 
-  {{ .ImplPackage }}.{{ .QualifyString "Options" }},
-  {{- end }}
-{{ end -}}
-)
-`
-	}
-	tmpl, err := template.
-		New("repositoryStubFileTemplate").
-		Parse(repositoryStubFileTemplate)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse template: %w", err)
-	}
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, templateData); err != nil {
-		return "", fmt.Errorf("failed to execute template: %w", err)
-	}
-	return formatImports(
-		path.Join(packagePath, "repositories.go"),
-		buf.Bytes(),
-	)
-}
-
-func collectImports(
-	fsys fs.FS,
-	astFile *ast.File,
-	importAPI, importImpl bool,
-	extraImports []Import,
-	repositories ...*RepositoryImpl,
-) (allImports []Import, _ error) {
-	usedImports := make(map[string]bool)
-	if astFile != nil {
-		for _, imp := range astFile.Imports {
-			path, _ := strconv.Unquote(imp.Path.Value)
-			usedImports[path] = true
-		}
-	}
-	diPkgPath := "go.uber.org/fx"
-	if useDig {
-		diPkgPath = "go.uber.org/dig"
-	}
-	allImports = append(allImports, Import{Name: "", Path: diPkgPath})
-	allImports = append(allImports, extraImports...)
-	importRepositories := func(importAPI, importImpl bool) error {
-		for _, repository := range repositories {
-			var rPkgPath string
-			if importAPI {
-				rPkgPath = repository.PackagePath
-			} else if importImpl {
-				rPkgPath = repository.ImplPackagePath
-			}
-			rImport, rAlias, err := loadLocalPackage(
-				fsys,
-				astFile,
-				rPkgPath,
+		if !match {
+			slog.Debug(
+				"Skipping package",
+				slog.String("api_path", apiPackagePath),
 			)
+			continue
+		}
+		repos, err := parseRepositoriesForPackage(
+			ctx,
+			fsys,
+			apiPackagePath,
+			packageFiles,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to parse repositories in %s: %w", apiPackagePath, err)
+		}
+		if len(repos) == 0 {
+			continue
+		}
+		slog.Debug(
+			"Parsed repositories",
+			slog.String("api_path", apiPackagePath),
+			slog.Int("count", len(repos)),
+		)
+		implPackagePath, err := computeImplPackagePath(
+			fApi,
+			fImpl,
+			apiPackagePath,
+		)
+		if err != nil {
+			return fmt.Errorf(
+				"failed to compute implementation package path associated with API %s: %w",
+				apiPackagePath,
+				err,
+			)
+		}
+		repImpls, err := parseRepositoryImpls(
+			ctx,
+			fsys,
+			implPackagePath,
+			repos,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to parse repository implementations: %w", err)
+		}
+		allRepImpls = append(allRepImpls, repImpls...)
+		for filename, impls := range groupByImplFilename(repImpls) {
+			implPath := path.Join(implPackagePath, filename)
+			_, statErr := os.Stat(implPath)
+			exists := statErr == nil
+			data, err := generateRepositoryImplsForFile(fsys, implPath, impls)
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to generate implementation file: %w", err)
 			}
-			// Check if there's a local package alias
-			if astFile != nil && rAlias != "" {
-				if importAPI {
-					repository.Package = rAlias
-				} else if importImpl {
-					repository.ImplPackage = rAlias
-				}
+			if data == "" {
+				continue
 			}
-			allImports = append(allImports, Import{Name: rAlias, Path: rImport})
-		}
-		return nil
-	}
-	if err := importRepositories(importAPI, false); err != nil {
-		return nil, err
-	}
-	if err := importRepositories(false, importImpl); err != nil {
-		return nil, err
-	}
+			if err := os.MkdirAll(
+				path.Dir(implPath),
+				0755,
+			); err != nil {
+				return fmt.Errorf("failed to create directory for implementation file at %s: %w", implPath, err)
+			}
+			if err := os.WriteFile(
+				implPath,
+				[]byte(data),
+				0644,
+			); err != nil {
+				return fmt.Errorf("failed to write implementation file at %s: %w", implPath, err)
+			}
 
-	for _, repository := range repositories {
-		allImports = append(allImports, repository.Imports...)
-		for _, newMethod := range repository.NewMethods() {
-			if newMethod.Params.HasCtx() {
-				allImports = append(
-					allImports,
-					Import{Name: "", Path: "context"},
-					Import{Name: "", Path: "go.opentelemetry.io/otel"},
-					Import{Name: "", Path: "go.opentelemetry.io/otel/codes"},
-				)
+			var nNewImpls, nNewMethods int
+			for _, impl := range impls {
+				if impl.IsNew {
+					nNewImpls++
+				}
+				nNewMethods += len(impl.NewMethods())
 			}
-			if newMethod.Returns.HasError() {
-				allImports = append(allImports, Import{Name: "", Path: "github.com/rotisserie/eris"})
+			if nNewImpls == 0 && nNewMethods == 0 {
+				continue
 			}
+			var logMsg string
+			if exists {
+				logMsg = "Updated implementation file"
+			} else {
+				logMsg = "Created implementation file"
+			}
+			slog.Debug(
+				logMsg,
+				slog.String("api_path", apiPackagePath),
+				slog.String("impl_path", implPath),
+				slog.Int("new_implementations", nNewImpls),
+				slog.Int("new_methods", nNewMethods),
+			)
 		}
 	}
-	imports := []Import{}
-	for _, imp := range allImports {
-		if _, ok := usedImports[imp.Path]; !ok {
-			usedImports[imp.Path] = true
-			imports = append(imports, imp)
+	if len(fFocus) == 0 {
+		stubSrc, err := generateRepositoryStubFile(fsys, fImpl, allRepImpls...)
+		if err != nil {
+			return fmt.Errorf("failed to generate repository stub file: %w", err)
 		}
+		if err := os.WriteFile(
+			path.Join(fImpl, "repositories.go"),
+			[]byte(stubSrc),
+			0644,
+		); err != nil {
+			return fmt.Errorf("failed to write repository stub file: %w", err)
+		}
+		slog.Debug("Generated repository stub file")
+	} else {
+		slog.Debug("Focus provided, skipping stub generation")
 	}
-	return imports, nil
+	return nil
 }
 
-func formatImports(filename string, src []byte) (_ string, err error) {
-	cmd := exec.Command("gofumpt")
-	cmd.Stdin = bytes.NewReader(src)
-	src, err = cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("failed to run gofumpt: %w", err)
+func groupByPackage(repositories []*RepositoryImpl) map[string][]*RepositoryImpl {
+	grouped := make(map[string][]*RepositoryImpl)
+	for _, repository := range repositories {
+		grouped[repository.Package] = append(
+			grouped[repository.Package],
+			repository,
+		)
 	}
-	formattedSrc, err := imports.Process(filename, src, nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to process imports: %w", err)
+	return grouped
+}
+
+func groupByImplFilename(repositories []*RepositoryImpl) map[string][]*RepositoryImpl {
+	grouped := make(map[string][]*RepositoryImpl)
+	for _, repository := range repositories {
+		grouped[repository.ImplFilename] = append(
+			grouped[repository.ImplFilename],
+			repository,
+		)
 	}
-	return string(formattedSrc), nil
+	return grouped
 }

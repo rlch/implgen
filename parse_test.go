@@ -5,6 +5,7 @@ import (
 	"testing"
 	"testing/fstest"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/stretchr/testify/require"
 )
 
@@ -384,9 +385,7 @@ func TestParseRepositories(t *testing.T) {
 		// slog.SetLogLoggerLevel(slog.LevelDebug)
 		t.Run(test.name, func(t *testing.T) {
 			require := require.New(t)
-			ctx := context.Background()
-			tree, err := tsparser.ParseCtx(ctx, nil, []byte(test.src))
-			require.NoError(err)
+			tree := tsparser.Parse([]byte(test.src), nil)
 			repos, err := parseRepositories([]byte(test.src), tree)
 			require.NoError(err)
 			testRepositories(t, test.expect, repos)
@@ -687,31 +686,31 @@ func TestParseRepositoryImpls(t *testing.T) {
 func testRepositories(t *testing.T, expected, actual []*Repository) {
 	t.Helper()
 	require := require.New(t)
-	require.Len(actual, len(expected))
 	for i, repo := range actual {
 		expect := expected[i]
 		require.Equal(expect.Package, repo.Package)
 		require.Equal(expect.Ident, repo.Ident)
-		require.Len(repo.Methods, len(expect.Methods))
+		require.Len(repo.Methods, len(expect.Methods), "methods", spew.Sdump(repo.Methods))
 		for j, method := range repo.Methods {
 			require.Equal(expect.Methods[j], method)
 		}
 		require.ElementsMatch(expect.Imports, repo.Imports)
 	}
+	require.Len(actual, len(expected), spew.Sdump(expected))
 }
 
 func testRepositoryImpls(t *testing.T, expected, actual []*RepositoryImpl) {
 	t.Helper()
 	require := require.New(t)
-	require.Len(actual, len(expected))
 	for i, repo := range actual {
 		expect := expected[i]
 		require.Equal(expect.ImplPackage, repo.ImplPackage)
 		require.Equal(expect.ImplFilename, repo.ImplFilename)
 		require.Equal(expect.IsNew, repo.IsNew)
-		require.Len(repo.ImplMethods, len(expect.ImplMethods))
+		require.Len(repo.ImplMethods, len(expect.ImplMethods), "implMethods", spew.Sdump(repo.ImplMethods))
 		for j, method := range repo.ImplMethods {
 			require.Equal(expect.ImplMethods[j], method)
 		}
 	}
+	require.Len(actual, len(expected), spew.Sdump(expected))
 }

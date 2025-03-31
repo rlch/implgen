@@ -3,10 +3,11 @@
 package internal
 
 //go:generate moq -out=waltuh/nested/mocks.go -pkg=nestedimpl -rm -skip-ensure ../api/waltuh/nested Repository
-//go:generate moq -out=spongebob_squarepants/mocks.go -pkg=spongebobsquarepantsimpl -rm -skip-ensure ../api/spongebob_squarepants SpongebobSquarepantsRepository
+//go:generate moq -out=spongebob_squarepants/mocks.go -pkg=spongebobsquarepantsimpl -rm -skip-ensure ../api/spongebob_squarepants Repository
 //go:generate moq -out=waltuh/mocks.go -pkg=waltuhimpl -rm -skip-ensure ../api/waltuh AnotherRepository BRepository Repository
 
 import (
+	spongebobsquarepantsimpl "example/internal/spongebob_squarepants"
 	waltuhimpl "example/internal/waltuh"
 	nestedimpl "example/internal/waltuh/nested"
 
@@ -15,7 +16,7 @@ import (
 
 var Repositories = fx.Options(
 	nestedimpl.Options,
-	spongebobsquarepantsimpl.SpongebobSquarepantsOptions,
+	spongebobsquarepantsimpl.Options,
 	waltuhimpl.Options,
 	waltuhimpl.AnotherOptions,
 	waltuhimpl.BOptions,

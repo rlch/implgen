@@ -205,20 +205,6 @@ func TestLoadLocalPackage(t *testing.T) {
 			"",
 		},
 		{
-			"removes _ in alias",
-			map[string]string{
-				"go.mod": `
-        module example
-
-        go 1.22.1
-        `,
-			},
-			&ast.File{},
-			"api/v1/movies_list",
-			"example/api/v1/movies_list",
-			"movieslist",
-		},
-		{
 			"uses existing alias if set",
 			map[string]string{
 				"go.mod": `

@@ -124,10 +124,5 @@ func loadLocalPackage(
 			return
 		}
 	}
-	base := path.Base(packagePath)
-	importAlias = strings.ReplaceAll(base, "_", "")
-	if base == importAlias {
-		importAlias = ""
-	}
 	return
 }

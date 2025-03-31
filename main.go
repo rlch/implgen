@@ -2,231 +2,100 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"go/token"
 	"log/slog"
 	"os"
-	"path"
-	"path/filepath"
-	"runtime/debug"
 	"time"
 
-	"github.com/alecthomas/kong"
-	"github.com/gobwas/glob"
 	"github.com/lmittmann/tint"
+	"github.com/urfave/cli/v3"
 )
 
 var (
-	cli struct {
-		Root    string   `type:"path" help:"Root directory to generate the api/impl tree from." default:"."`
-		API     string   `type:"string" help:"Directory to API definitions, relative to root." default:"api"`
-		Impl    string   `type:"string" help:"Directory to implementation files, relative to root." default:"internal"`
-		Focus   []string `type:"string" help:"Focus generating specific packages relative to API using a glob. Does not generate stub if provided."`
-		Dig     bool     `help:"Use dig for dependency injection instead of fx."`
-		Verbose bool     `help:"Enable verbose logging." short:"v"`
+	cmd = &cli.Command{
+		Name:           "implgen",
+		Description:    "Code generator for API implementations.",
+		DefaultCommand: "generate",
+		Flags: []cli.Flag{
+			&cli.BoolFlag{
+				Name:        "verbose",
+				Usage:       "Enable verbose logging",
+				Aliases:     []string{"v"},
+				Destination: &verbose,
+			},
+		},
+		EnableShellCompletion: true,
+		Commands: []*cli.Command{
+			{
+				Name:        "generate",
+				Description: "Generate API implementations",
+				Action:      generate,
+				Flags: []cli.Flag{
+					&cli.StringFlag{
+						Name:        "root",
+						Usage:       "Root directory to generate the api/impl tree from.",
+						Value:       ".",
+						Destination: &fRoot,
+					},
+					&cli.StringFlag{
+						Name:        "api",
+						Usage:       "Directory to API definitions, relative to root.",
+						Value:       "api",
+						Destination: &fApi,
+					},
+					&cli.StringFlag{
+						Name:        "impl",
+						Usage:       "Directory to implementation files, relative to root.",
+						Value:       "internal",
+						Destination: &fImpl,
+					},
+					&cli.StringSliceFlag{
+						Name:        "focus",
+						Usage:       "Focus generating specific packages relative to API using a glob. Does not generate stub if provided.",
+						Destination: &fFocus,
+					},
+					&cli.BoolFlag{
+						Name:        "dig",
+						Usage:       "Use dig for dependency injection instead of fx.",
+						Destination: &fUseDig,
+					},
+				},
+			},
+		},
+		Before: func(ctx context.Context, c *cli.Command) (context.Context, error) {
+			logOpts := &tint.Options{
+				TimeFormat: time.Kitchen,
+			}
+			if verbose {
+				logOpts.Level = slog.LevelDebug
+				logOpts.AddSource = true
+			}
+			logger := slog.New(
+				tint.NewHandler(os.Stdout, logOpts),
+			)
+			slog.SetDefault(logger)
+			return ctx, nil
+		},
 	}
+
 	fset = token.NewFileSet()
 )
 
-var useDig bool
+var (
+	fRoot   string
+	fApi    string
+	fImpl   string
+	fFocus  []string
+	fUseDig bool
+
+	verbose bool
+)
 
 func main() {
-	kong.Parse(
-		&cli,
-		kong.Name("implgen"),
-		kong.Description("Code generator for API implementations."),
-	)
-	logOpts := &tint.Options{
-		TimeFormat: time.Kitchen,
-	}
-	if cli.Verbose {
-		logOpts.Level = slog.LevelDebug
-		logOpts.AddSource = true
-	}
-	useDig = cli.Dig
-	logger := slog.New(
-		tint.NewHandler(os.Stdout, logOpts),
-	)
-	slog.SetDefault(logger)
-	if err := run(); err != nil {
-		logger.Error(
+	if err := cmd.Run(context.Background(), os.Args); err != nil {
+		slog.Error(
 			"Failed to run implgen",
 			slog.Any("error", err),
 		)
-		if cli.Verbose {
-			debug.PrintStack()
-		}
 	}
-}
-
-func run() error {
-	ctx := context.Background()
-	fsys := os.DirFS(cli.Root)
-	slog.Debug(
-		"Crawling API directory",
-		slog.String("root", cli.Root),
-		slog.String("api_root", cli.API),
-		slog.String("impl_root", cli.Impl),
-	)
-	apiFiles, err := crawlAPI(fsys, cli.API)
-	if err != nil {
-		return fmt.Errorf("failed to walk API directory: %w", err)
-	}
-	allRepImpls := []*RepositoryImpl{}
-	focusGlobs := make([]glob.Glob, len(cli.Focus))
-	for i, focus := range cli.Focus {
-		glob, err := glob.Compile(focus)
-		if err != nil {
-			return fmt.Errorf("failed to compile glob %s: %w", focus, err)
-		}
-		focusGlobs[i] = glob
-	}
-
-	for apiPackagePath, packageFiles := range apiFiles {
-		match := len(cli.Focus) == 0
-		for _, glob := range focusGlobs {
-			relToAPI, err := filepath.Rel(cli.API, apiPackagePath)
-			if err != nil {
-				return fmt.Errorf("failed to compute relative path to API: %w", err)
-			}
-			if glob.Match(relToAPI) {
-				match = true
-				break
-			}
-		}
-		if !match {
-			slog.Debug(
-				"Skipping package",
-				slog.String("api_path", apiPackagePath),
-			)
-			continue
-		}
-		repos, err := parseRepositoriesForPackage(
-			ctx,
-			fsys,
-			apiPackagePath,
-			packageFiles,
-		)
-		if err != nil {
-			return fmt.Errorf("failed to parse repositories in %s: %w", apiPackagePath, err)
-		}
-		if len(repos) == 0 {
-			continue
-		}
-		slog.Debug(
-			"Parsed repositories",
-			slog.String("api_path", apiPackagePath),
-			slog.Int("count", len(repos)),
-		)
-		implPackagePath, err := computeImplPackagePath(
-			cli.API,
-			cli.Impl,
-			apiPackagePath,
-		)
-		if err != nil {
-			return fmt.Errorf(
-				"failed to compute implementation package path associated with API %s: %w",
-				apiPackagePath,
-				err,
-			)
-		}
-		repImpls, err := parseRepositoryImpls(
-			ctx,
-			fsys,
-			implPackagePath,
-			repos,
-		)
-		if err != nil {
-			return fmt.Errorf("failed to parse repository implementations: %w", err)
-		}
-		allRepImpls = append(allRepImpls, repImpls...)
-		for filename, impls := range groupByImplFilename(repImpls) {
-			implPath := path.Join(implPackagePath, filename)
-			_, statErr := os.Stat(implPath)
-			exists := statErr == nil
-			data, err := generateRepositoryImplsForFile(fsys, implPath, impls)
-			if err != nil {
-				return fmt.Errorf("failed to generate implementation file: %w", err)
-			}
-			if data == "" {
-				continue
-			}
-			if err := os.MkdirAll(
-				path.Dir(implPath),
-				0755,
-			); err != nil {
-				return fmt.Errorf("failed to create directory for implementation file at %s: %w", implPath, err)
-			}
-			if err := os.WriteFile(
-				implPath,
-				[]byte(data),
-				0644,
-			); err != nil {
-				return fmt.Errorf("failed to write implementation file at %s: %w", implPath, err)
-			}
-
-			var nNewImpls, nNewMethods int
-			for _, impl := range impls {
-				if impl.IsNew {
-					nNewImpls++
-				}
-				nNewMethods += len(impl.NewMethods())
-			}
-			if nNewImpls == 0 && nNewMethods == 0 {
-				continue
-			}
-			var logMsg string
-			if exists {
-				logMsg = "Updated implementation file"
-			} else {
-				logMsg = "Created implementation file"
-			}
-			slog.Debug(
-				logMsg,
-				slog.String("api_path", apiPackagePath),
-				slog.String("impl_path", implPath),
-				slog.Int("new_implementations", nNewImpls),
-				slog.Int("new_methods", nNewMethods),
-			)
-		}
-	}
-	if len(cli.Focus) == 0 {
-		stubSrc, err := generateRepositoryStubFile(fsys, cli.Impl, allRepImpls...)
-		if err != nil {
-			return fmt.Errorf("failed to generate repository stub file: %w", err)
-		}
-		if err := os.WriteFile(
-			path.Join(cli.Impl, "repositories.go"),
-			[]byte(stubSrc),
-			0644,
-		); err != nil {
-			return fmt.Errorf("failed to write repository stub file: %w", err)
-		}
-		slog.Debug("Generated repository stub file")
-	} else {
-		slog.Debug("Focus provided, skipping stub generation")
-	}
-	return nil
-}
-
-func groupByPackage(repositories []*RepositoryImpl) map[string][]*RepositoryImpl {
-	grouped := make(map[string][]*RepositoryImpl)
-	for _, repository := range repositories {
-		grouped[repository.Package] = append(
-			grouped[repository.Package],
-			repository,
-		)
-	}
-	return grouped
-}
-
-func groupByImplFilename(repositories []*RepositoryImpl) map[string][]*RepositoryImpl {
-	grouped := make(map[string][]*RepositoryImpl)
-	for _, repository := range repositories {
-		grouped[repository.ImplFilename] = append(
-			grouped[repository.ImplFilename],
-			repository,
-		)
-	}
-	return grouped
 }

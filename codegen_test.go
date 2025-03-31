@@ -537,7 +537,7 @@ type repositoryImpl[A, B string, C int] struct {
 `,
 		},
 		{
-			"generates repository without qualification",
+			"generates repository with qualification",
 			Repository{
 				Package: "foo",
 				Ident:   "BarRepository",
@@ -955,7 +955,6 @@ type repositoryImpl struct {
 				test.have,
 			)
 			require.NoError(err)
-			t.Log(got)
 			require.Equal(test.expect, got)
 		})
 	}
@@ -1081,7 +1080,7 @@ var Repositories = fx.Options(
 	} {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
-			cli.Impl = "internal"
+			fImpl = "internal"
 			require := require.New(t)
 			fsys := make(fstest.MapFS)
 			fsys["go.mod"] = &fstest.MapFile{Data: []byte(`
@@ -1153,7 +1152,7 @@ var RepositoryFactories = []any{
 	} {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
-			cli.Impl = "internal"
+			fImpl = "internal"
 			require := require.New(t)
 			fsys := make(fstest.MapFS)
 			fsys["go.mod"] = &fstest.MapFile{Data: []byte(`
@@ -1161,7 +1160,7 @@ var RepositoryFactories = []any{
 
         go 1.22.1`,
 			), Mode: 0644}
-			useDig = true
+			fUseDig = true
 			got, err := generateRepositoryStubFile(
 				fsys,
 				"internal",
@@ -1231,7 +1230,7 @@ type repositoryImpl struct {
 		t.Run(test.name, func(t *testing.T) {
 			require := require.New(t)
 			fsys := make(fstest.MapFS, len(test.fsys))
-			useDig = true
+			fUseDig = true
 			for path, content := range test.fsys {
 				fsys[path] = &fstest.MapFile{Data: []byte(content), Mode: 0644}
 			}
@@ -1241,7 +1240,6 @@ type repositoryImpl struct {
 				test.have,
 			)
 			require.NoError(err)
-			t.Log(got)
 			require.Equal(test.expect, got)
 		})
 	}

@@ -13,9 +13,24 @@ import (
 	"strings"
 
 	"github.com/danielgtaylor/casing"
-	sitter "github.com/smacker/go-tree-sitter"
-	tsgo "github.com/smacker/go-tree-sitter/golang"
+	sitter "github.com/rlch/implgen/go-tree-sitter"
+	tsgo "github.com/rlch/implgen/parser/bindings/go"
 )
+
+var (
+	ErrNoPackage = errors.New("no package name found")
+
+	tsparser *sitter.Parser
+	language *sitter.Language = sitter.NewLanguage(tsgo.Language())
+)
+
+func init() {
+	tsparser = sitter.NewParser()
+	err := tsparser.SetLanguage(language)
+	if err != nil {
+		panic(err)
+	}
+}
 
 type (
 	Repository struct {
@@ -79,18 +94,6 @@ func (r Repository) GenericsInstance() (out string) {
 	return "[" + out + "]"
 }
 
-var (
-	ErrNoPackage = errors.New("no package name found")
-
-	tsparser *sitter.Parser
-	lang     = tsgo.GetLanguage()
-)
-
-func init() {
-	tsparser = sitter.NewParser()
-	tsparser.SetLanguage(lang)
-}
-
 func parseRepositoriesForPackage(
 	ctx context.Context,
 	fsys fs.FS,
@@ -110,10 +113,8 @@ func parseRepositoriesForPackage(
 		if err != nil {
 			return nil, fmt.Errorf("failed to read file %s: %w", fullPath, err)
 		}
-		tree, err := tsparser.ParseCtx(ctx, nil, src)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse file %s: %w", fullPath, err)
-		}
+		tree := tsparser.Parse(src, nil)
+		defer tree.Close()
 		packageRepos, err := parseRepositories(src, tree)
 		if err != nil {
 			return nil, fmt.Errorf("failed to extract repositories from file %s: %w", fullPath, err)
@@ -163,12 +164,12 @@ func parseRepositories(src []byte, tree *sitter.Tree) (repos []*Repository, err 
 		PARAMS_CAPTURE
 		RESULT_CAPTURE
 	)
-	query, err := sitter.NewQuery([]byte(`
+	query, queryErr := sitter.NewQuery(language, `
 (package_clause (package_identifier) @pkg) 
 
 (type_spec
   name: (type_identifier) @class_name (#match? @class_name "Repository$")
-  type_parameters: (type_parameter_list)? @generics
+  type_parameters: (type_parameter_list)? @generics 
   type: 
    (interface_type
      (method_elem
@@ -179,31 +180,32 @@ func parseRepositories(src []byte, tree *sitter.Tree) (repos []*Repository, err 
         (type_identifier)
         (qualified_type)
        ]? @result)?))
-    `), lang)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create query: %w", err)
+    `)
+	if queryErr != nil {
+		return nil, fmt.Errorf("failed to create query: %s", queryErr)
 	}
-	qc := sitter.NewQueryCursor()
-	qc.Exec(query, tree.RootNode())
+	defer query.Close()
+	cursor := sitter.NewQueryCursor()
+	defer cursor.Close()
+	qc := cursor.Captures(query, tree.RootNode(), src)
 
 	// Get package name
-	m, ok := qc.NextMatch()
-	if !ok {
+	m, _ := qc.Next()
+	if m == nil {
 		return nil, nil
 	}
-	m = qc.FilterPredicates(m, src)
 	if len(m.Captures) != 1 {
 		return nil, ErrNoPackage
 	}
 
-	pkg := m.Captures[0].Node.Content(src)
+	pkg := m.Captures[0].Node.Utf8Text(src)
 	defer func() {
 		for _, repo := range repos {
 			repo.Package = pkg
 		}
 	}()
-	m, ok = qc.NextMatch()
-	if !ok {
+	m, _ = qc.Next()
+	if m == nil {
 		return nil, nil
 	}
 	var curIdx, methodIdx int
@@ -211,9 +213,10 @@ func parseRepositories(src []byte, tree *sitter.Tree) (repos []*Repository, err 
 	for {
 		for _, c := range m.Captures {
 			repo := repos[curIdx]
+			nodeSrc := c.Node.Utf8Text(src)
 			switch c.Index {
 			case CLASS_NAME_CAPTURE:
-				name := c.Node.Content(src)
+				name := nodeSrc
 				// NOTE: Apparently there's a problem with #match? directive, hacky
 				// workaround
 				if !strings.HasSuffix(name, "Repository") {
@@ -230,11 +233,10 @@ func parseRepositories(src []byte, tree *sitter.Tree) (repos []*Repository, err 
 					repo.Ident = name
 				}
 			case GENERICS_CAPTURE:
-				generics := c.Node.Content(src)
-				repo.Generics = generics
+				repo.Generics = nodeSrc
 			case METHOD_NAME_CAPTURE:
 				var curMethod *Method
-				methodName := c.Node.Content(src)
+				methodName := nodeSrc
 				if len(repo.Methods) == 0 {
 					curMethod = &Method{Ident: methodName}
 					repo.Methods = append(repo.Methods, curMethod)
@@ -242,24 +244,33 @@ func parseRepositories(src []byte, tree *sitter.Tree) (repos []*Repository, err 
 					curMethod = repo.Methods[methodIdx]
 				}
 				if curMethod.Ident != methodName {
-					methodIdx++
-					repo.Methods = append(repo.Methods, &Method{Ident: methodName})
+					found := false
+					for i, m := range repo.Methods {
+						if m.Ident == methodName {
+							methodIdx = i
+							found = true
+							break
+						}
+					}
+					if !found {
+						methodIdx = len(repo.Methods)
+						repo.Methods = append(repo.Methods, &Method{Ident: methodName})
+					}
 				}
-
 			case PARAMS_CAPTURE:
-				repo.Methods[methodIdx].Params = parseParams(c.Node.Content(src))
+				repo.Methods[methodIdx].Params = parseParams(nodeSrc)
 			case RESULT_CAPTURE:
-				repo.Methods[methodIdx].Returns = parseParams(c.Node.Content(src))
+				repo.Methods[methodIdx].Returns = parseParams(nodeSrc)
 			default:
 				slog.Error(
 					"unhandled",
 					slog.Int("index", int(c.Index)),
-					slog.String("src", c.Node.Content(src)),
+					slog.String("src", c.Node.Utf8Text(src)),
 				)
 			}
 		}
-		m, ok = qc.NextMatch()
-		if !ok {
+		m, _ = qc.Next()
+		if m == nil {
 			break
 		}
 	}
@@ -484,7 +495,7 @@ func parseRepositoryImplFile(ctx context.Context, src []byte) (
 	methods = make(map[string][]string)
 	// NOTE: We use (.*) after an Impl as a workaround for (\[.*\])?
 	// should be fiiiiiiiiiiiiiiiiiiiiinee
-	query, err := sitter.NewQuery([]byte(`
+	query, queryErr := sitter.NewQuery(language, `
   (
     (package_clause (package_identifier) @pkg)
     (type_declaration 
@@ -496,37 +507,36 @@ func parseRepositoryImplFile(ctx context.Context, src []byte) (
             type: (_) @impl_rec (#match? @impl_rec "Impl(.*)?$")))
         name: (field_identifier) @impl_field)?
   )
-`), lang)
-	if err != nil {
-		return "", nil, nil, err
+`)
+	if queryErr != nil {
+		return "", nil, nil, queryErr
 	}
+	defer query.Close()
 
-	tree, err := tsparser.ParseCtx(ctx, nil, src)
-	if err != nil {
-		return "", nil, nil, fmt.Errorf("failed to parse file: %w", err)
-	}
+	tree := tsparser.Parse(src, nil)
+	defer tree.Close()
 
-	qc := sitter.NewQueryCursor()
-	qc.Exec(query, tree.RootNode())
+	cursor := sitter.NewQueryCursor()
+	defer cursor.Close()
+	qc := cursor.Captures(query, tree.RootNode(), src)
 
-	// Get package name
-	m, ok := qc.NextMatch()
-	if !ok {
-		return "", nil, nil, ErrNoPackage
-	}
 	repImplMap := map[string]bool{}
 	var curRec string
 	for {
-		m = qc.FilterPredicates(m, src)
+		m, _ := qc.Next()
+		if m == nil {
+			break
+		}
 		for _, c := range m.Captures {
+			nodeSrc := c.Node.Utf8Text(src)
 			switch c.Index {
 			case PKG_CAPTURE:
-				packageName = c.Node.Content(src)
+				packageName = nodeSrc
 			case IMPL_NAME_CAPTURE:
-				implName := c.Node.Content(src)
+				implName := nodeSrc
 				repImplMap[implName] = true
 			case IMPL_REC_CAPTURE:
-				rec := c.Node.Content(src)
+				rec := nodeSrc
 				if rec == "" {
 					continue
 				}
@@ -541,7 +551,7 @@ func parseRepositoryImplFile(ctx context.Context, src []byte) (
 				if curRec == "" {
 					panic("receiver not found")
 				}
-				method := c.Node.Content(src)
+				method := nodeSrc
 				found := false
 				for _, curMethod := range methods[curRec] {
 					if curMethod == method {
@@ -556,13 +566,9 @@ func parseRepositoryImplFile(ctx context.Context, src []byte) (
 				slog.Error(
 					"unhandled",
 					slog.Int("index", int(c.Index)),
-					slog.String("src", c.Node.Content(src)),
+					slog.String("src", nodeSrc),
 				)
 			}
-		}
-		m, ok = qc.NextMatch()
-		if !ok {
-			break
 		}
 	}
 	if packageName == "" {
