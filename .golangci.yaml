@@ -1,0 +1,11 @@
+version: "2"
+linters:
+  default: fast
+run:
+  timeout: "1m"
+  issues-exit-code: 1
+  tests: true
+  allow-parallel-runners: true
+  allow-serial-runners: false
+  go: "1.23"
+  relative-path-mode: wd
