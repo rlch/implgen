@@ -1,3 +1,9 @@
+// Package main contains code generation logic for creating Go implementation files.
+//
+// This file implements the template-based code generation system that creates
+// implementation files with proper method signatures, dependency injection setup,
+// observability instrumentation, and error handling. It manages imports, formatting,
+// and merging with existing implementation files.
 package main
 
 import (
@@ -12,6 +18,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -20,20 +27,21 @@ import (
 	"golang.org/x/tools/imports"
 )
 
+// ImplTestPackage returns the test package name for the implementation package.
+// This follows Go's convention of using "_test" suffix for external test packages.
 func (r RepositoryImpl) ImplTestPackage() string {
 	return r.ImplPackage + "_test"
 }
 
+// NewMethods returns the list of methods that need to be implemented.
+//
+// It compares the interface methods against the existing implementation methods
+// and returns only those that are missing. The returned methods have their
+// parameter and return types properly qualified with package names.
 func (r RepositoryImpl) NewMethods() []*Method {
 	methods := []*Method{}
 	for _, method := range r.Methods {
-		existing := false
-		for _, existingMethod := range r.ImplMethods {
-			if method.Ident == existingMethod {
-				existing = true
-				break
-			}
-		}
+		existing := slices.Contains(r.ImplMethods, method.Ident)
 		if existing {
 			continue
 		}
@@ -78,10 +86,8 @@ func (r RepositoryImpl) NewMethods() []*Method {
 				return typ
 			}
 			// handle case where we return a generic defined by repository
-			for _, g := range r.GenericsVariableList() {
-				if typ == g {
-					return typ
-				}
+			if slices.Contains(r.GenericsVariableList(), typ) {
+				return typ
 			}
 			return r.Package + "." + typ
 		}
@@ -344,7 +350,7 @@ func generateRepositoryImplsForFile(
 	}
 	// Write package declaration to src. If the file does not exist, write a new package declaration.
 	if file != nil {
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 		originalSrc, err = io.ReadAll(file)
 		if err != nil {
 			return "", err
@@ -476,9 +482,7 @@ func generateRepositoryStubFile(
 		for i, repository := range repositories {
 			repositoryIdents[i] = repository.Ident
 		}
-		sort.Slice(repositoryIdents, func(i, j int) bool {
-			return repositoryIdents[i] < repositoryIdents[j]
-		})
+		slices.Sort(repositoryIdents)
 		templateData.MockDirectives = append(templateData.MockDirectives, MockDirective{
 			Src:          src,
 			Dst:          dst,

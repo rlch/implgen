@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"testing"
 	"testing/fstest"
 
@@ -58,13 +57,11 @@ func TestParseRepositoriesForPackage(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			require := require.New(t)
-			ctx := context.Background()
 			fsys := make(fstest.MapFS, len(test.fsys))
 			for path, content := range test.fsys {
 				fsys[path] = &fstest.MapFile{Data: []byte(content), Mode: 0644}
 			}
 			got, err := parseRepositoriesForPackage(
-				ctx,
 				fsys,
 				test.packagePath,
 				test.files,
@@ -483,8 +480,7 @@ func TestParseRepositoryImplFile(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			require := require.New(t)
-			ctx := context.Background()
-			pkg, impls, methods, err := parseRepositoryImplFile(ctx, []byte(test.have))
+			pkg, impls, methods, err := parseRepositoryImplFile([]byte(test.have))
 			require.NoError(err)
 			require.Equal(test.expect.packageName, pkg)
 			require.ElementsMatch(test.expect.repImpls, impls)
@@ -666,13 +662,11 @@ func TestParseRepositoryImpls(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			require := require.New(t)
-			ctx := context.Background()
 			fsys := make(fstest.MapFS, len(test.fsys))
 			for path, content := range test.fsys {
 				fsys[path] = &fstest.MapFile{Data: []byte(content), Mode: 0644}
 			}
 			got, err := parseRepositoryImpls(
-				ctx,
 				fsys,
 				test.packagePath,
 				test.have,

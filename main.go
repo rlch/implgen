@@ -1,3 +1,9 @@
+// Package main provides the implgen CLI tool for generating Go interface implementations.
+//
+// implgen automatically creates implementation boilerplate for Go interfaces following
+// the Repository pattern. It parses interface definitions from an API directory and
+// generates corresponding implementation files with proper dependency injection,
+// observability, and error handling.
 package main
 
 import (
@@ -12,6 +18,7 @@ import (
 )
 
 var (
+	// cmd defines the root CLI command and its subcommands, flags, and behavior.
 	cmd = &cli.Command{
 		Name:           "implgen",
 		Description:    "Code generator for API implementations.",
@@ -78,19 +85,23 @@ var (
 		},
 	}
 
+	// fset is a global file set used for parsing Go source files.
 	fset = token.NewFileSet()
 )
 
 var (
-	fRoot   string
-	fApi    string
-	fImpl   string
-	fFocus  []string
-	fUseDig bool
+	// CLI flag variables that store user-provided configuration.
+	fRoot   string   // Root directory for the project
+	fApi    string   // API directory relative to root
+	fImpl   string   // Implementation directory relative to root
+	fFocus  []string // Glob patterns to focus on specific packages
+	fUseDig bool     // Whether to use dig instead of fx for dependency injection
 
-	verbose bool
+	verbose bool // Whether to enable verbose logging
 )
 
+// main is the entry point for the implgen CLI application.
+// It sets up the CLI command and executes it with the provided arguments.
 func main() {
 	if err := cmd.Run(context.Background(), os.Args); err != nil {
 		slog.Error(

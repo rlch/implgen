@@ -1,3 +1,8 @@
+// Package main contains file system utilities for directory traversal and path management.
+//
+// This file provides functions for crawling directory trees to find Go source files,
+// computing implementation paths from API paths, detecting Go module information,
+// and managing import paths for generated code.
 package main
 
 import (
@@ -12,8 +17,11 @@ import (
 	"golang.org/x/mod/modfile"
 )
 
-// crawlAPI returns the list of files that should be analysed for API definitions.
-// The returned map is a mapping of directories to the file names in that directory.
+// crawlAPI traverses the API directory tree to find Go source files.
+//
+// It returns a map where keys are directory paths and values are slices of Go filenames
+// within those directories. Test files (*_test.go) are excluded from the results.
+// The function only considers files with the .go extension.
 func crawlAPI(
 	fsys fs.FS,
 	apiDir string,
@@ -41,6 +49,12 @@ func crawlAPI(
 	return
 }
 
+// computeImplPackagePath calculates the implementation package path from an API package path.
+//
+// It takes the relative path of the API package from the API root and mirrors that
+// structure under the implementation root. For example:
+//   - apiRoot: "api", implRoot: "internal", apiPackagePath: "api/user"
+//   - Returns: "internal/user"
 func computeImplPackagePath(apiRoot, implRoot, apiPackagePath string) (string, error) {
 	apiRoot = path.Clean(apiRoot)
 	implRoot = path.Clean(implRoot)
@@ -62,9 +76,14 @@ func computeImplPackagePath(apiRoot, implRoot, apiPackagePath string) (string, e
 	return implPackagePath, nil
 }
 
+// cachedModule stores the detected module path to avoid repeated filesystem operations.
 var cachedModule string
 
-// getModule recursively searches (upwards) for a go.mod file and returns the module path.
+// getModule recursively searches upward for a go.mod file and returns the module path.
+//
+// It starts from the given root directory and walks up the directory tree until
+// it finds a go.mod file. The module path is cached for subsequent calls to
+// improve performance. Returns an error if no go.mod file is found.
 func getModule(fsys fs.FS, root string) (module string, err error) {
 	if cachedModule != "" {
 		return cachedModule, nil
@@ -94,8 +113,11 @@ func getModule(fsys fs.FS, root string) (module string, err error) {
 	return
 }
 
-// loadLocalPackage returns the import path and alias for a local package under
-// the context of a (potentially already dependent) astFile.
+// loadLocalPackage computes the full import path and alias for a local package.
+//
+// It combines the module path with the package path to create a full import path.
+// If an AST file is provided, it checks for existing import aliases in that file.
+// This is used when generating import statements in implementation files.
 func loadLocalPackage(
 	fsys fs.FS,
 	astFile *ast.File,

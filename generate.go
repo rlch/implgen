@@ -12,6 +12,16 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
+// generate orchestrates the main generation process for creating implementation files.
+//
+// It performs the following steps:
+//  1. Crawls the API directory to find Go files containing interfaces
+//  2. Applies focus filters using glob patterns if specified
+//  3. Parses Repository interfaces from the discovered files
+//  4. Computes implementation package paths and generates implementation files
+//  5. Creates or updates the dependency injection stub file (repositories.go)
+//
+// The function preserves existing implementations and only generates missing methods.
 func generate(ctx context.Context, cmd *cli.Command) error {
 	fsys := os.DirFS(fRoot)
 	slog.Debug(
@@ -54,7 +64,6 @@ func generate(ctx context.Context, cmd *cli.Command) error {
 			continue
 		}
 		repos, err := parseRepositoriesForPackage(
-			ctx,
 			fsys,
 			apiPackagePath,
 			packageFiles,
@@ -83,7 +92,6 @@ func generate(ctx context.Context, cmd *cli.Command) error {
 			)
 		}
 		repImpls, err := parseRepositoryImpls(
-			ctx,
 			fsys,
 			implPackagePath,
 			repos,
@@ -161,6 +169,8 @@ func generate(ctx context.Context, cmd *cli.Command) error {
 	return nil
 }
 
+// groupByPackage groups repository implementations by their API package name.
+// This is used to organize repositories for mock generation directives.
 func groupByPackage(repositories []*RepositoryImpl) map[string][]*RepositoryImpl {
 	grouped := make(map[string][]*RepositoryImpl)
 	for _, repository := range repositories {
@@ -172,6 +182,8 @@ func groupByPackage(repositories []*RepositoryImpl) map[string][]*RepositoryImpl
 	return grouped
 }
 
+// groupByImplFilename groups repository implementations by their implementation filename.
+// This ensures that repositories that should be in the same file are processed together.
 func groupByImplFilename(repositories []*RepositoryImpl) map[string][]*RepositoryImpl {
 	grouped := make(map[string][]*RepositoryImpl)
 	for _, repository := range repositories {

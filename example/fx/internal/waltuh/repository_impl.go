@@ -56,7 +56,7 @@ func (r *repositoryImpl) MakeMoney(ctx context.Context, poundsOfMeth int) (_ int
 		span.End()
 	}()
 	_ = ctx
-	return poundsOfMeth * 10000, nil
+	panic("TODO: implement waltuh.Repository.MakeMoney")
 }
 
 func (r *repositoryImpl) DropWaltJrOffAtSchool(ctx context.Context) (_ bool, err error) {

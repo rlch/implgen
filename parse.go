@@ -1,7 +1,12 @@
+// Package main contains parsing logic for extracting Go interface definitions.
+//
+// This file implements the core parsing functionality that uses tree-sitter to analyze
+// Go source code and extract Repository interface definitions along with their methods,
+// parameters, and type information. It also handles parsing of existing implementation
+// files to determine what methods already exist.
 package main
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"go/parser"
@@ -9,6 +14,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"path"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -18,9 +24,13 @@ import (
 )
 
 var (
+	// ErrNoPackage is returned when no package declaration is found in a Go file.
 	ErrNoPackage = errors.New("no package name found")
 
+	// tsparser is the global tree-sitter parser instance used for parsing Go source code.
 	tsparser *sitter.Parser
+	
+	// language represents the Go language grammar for tree-sitter parsing.
 	language *sitter.Language = sitter.NewLanguage(tsgo.Language())
 )
 
@@ -33,39 +43,54 @@ func init() {
 }
 
 type (
+	// Repository represents a parsed Go interface ending with "Repository".
+	// It contains all the metadata needed to generate an implementation.
 	Repository struct {
-		Package     string
-		PackagePath string
-		Filename    string
-		Ident       string
-		Generics    string
-		Methods     []*Method
-		Imports     []Import
+		Package     string    // Package name (e.g., "user")
+		PackagePath string    // Full path to the package directory
+		Filename    string    // Name of the file containing the interface
+		Ident       string    // Interface identifier (e.g., "UserRepository")
+		Generics    string    // Generic type parameters (e.g., "[T any]")
+		Methods     []*Method // All methods defined in the interface
+		Imports     []Import  // Import statements from the source file
 	}
+	
+	// RepositoryImpl extends Repository with implementation-specific metadata.
+	// It tracks what implementations already exist and where they should be generated.
 	RepositoryImpl struct {
 		Repository
-		IsNew           bool
-		ImplPackage     string
-		ImplPackagePath string
-		ImplFilename    string
-		ImplMethods     []string
+		IsNew           bool     // Whether this is a completely new implementation
+		ImplPackage     string   // Implementation package name (e.g., "userimpl")
+		ImplPackagePath string   // Path to implementation package directory
+		ImplFilename    string   // Name of the implementation file
+		ImplMethods     []string // Names of methods that already have implementations
 	}
+	
+	// Import represents a Go import statement.
 	Import struct {
-		Name string
-		Path string
+		Name string // Import alias (empty for no alias)
+		Path string // Import path
 	}
+	
+	// Method represents a single method in an interface.
 	Method struct {
-		Ident   string
-		Params  Params
-		Returns Params
+		Ident   string // Method name
+		Params  Params // Method parameters
+		Returns Params // Method return values
 	}
+	
+	// Params is a slice of parameters or return values.
 	Params []*Param
-	Param  struct {
-		Ident string
-		Type  string
+	
+	// Param represents a single parameter or return value.
+	Param struct {
+		Ident string // Parameter name (may be empty for unnamed parameters)
+		Type  string // Parameter type
 	}
 )
 
+// GenericsVariableList extracts the generic type variable names from the generics string.
+// For example, "[T any, U comparable]" returns ["T", "U"].
 func (r Repository) GenericsVariableList() []string {
 	out := []string{}
 	generics := strings.Trim(r.Generics, "[]")
@@ -79,6 +104,8 @@ func (r Repository) GenericsVariableList() []string {
 	return out
 }
 
+// GenericsInstance returns the generic type instantiation string for use in implementations.
+// For example, "[T any, U comparable]" becomes "[T, U]" for instantiating the generic type.
 func (r Repository) GenericsInstance() (out string) {
 	generics := strings.Trim(r.Generics, "[]")
 	if generics == "" {
@@ -94,8 +121,12 @@ func (r Repository) GenericsInstance() (out string) {
 	return "[" + out + "]"
 }
 
+// parseRepositoriesForPackage extracts Repository interfaces from all Go files in a package.
+//
+// It processes each file using tree-sitter to parse the syntax tree and extract
+// interface definitions that end with "Repository". The function aggregates
+// repositories from all files in the package and sets their package metadata.
 func parseRepositoriesForPackage(
-	ctx context.Context,
 	fsys fs.FS,
 	packagePath string,
 	packageFiles []string,
@@ -107,7 +138,7 @@ func parseRepositoriesForPackage(
 		if err != nil {
 			return nil, fmt.Errorf("failed to open file %s: %w", fullPath, err)
 		}
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 		var src []byte
 		src, err = io.ReadAll(file)
 		if err != nil {
@@ -284,9 +315,10 @@ func getEnclosingBrackets(s string, left, right rune) (start, end int) {
 	bracketCount := 0
 	start = strings.Index(s, string(left))
 	for i, c := range s[start+1:] {
-		if c == left {
+		switch c {
+		case left:
 			bracketCount++
-		} else if c == right {
+		case right:
 			bracketCount--
 		}
 		if bracketCount == -1 {
@@ -308,7 +340,7 @@ func parseParams(src string) Params {
 	// comma.
 	args := []string{}
 	var (
-		lastComma int = -1
+		lastComma = -1
 		i         int
 	)
 	for {
@@ -391,7 +423,6 @@ func parseNamedParams(parts []string) Params {
 }
 
 func parseRepositoryImpls(
-	ctx context.Context,
 	fsys fs.FS,
 	implPackagePath string,
 	repos []*Repository,
@@ -444,12 +475,12 @@ func parseRepositoryImpls(
 		if err != nil {
 			return nil, err
 		}
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 		src, err := io.ReadAll(file)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read file %s: %w", path, err)
 		}
-		pkg, implDecls, methods, err := parseRepositoryImplFile(ctx, src)
+		pkg, implDecls, methods, err := parseRepositoryImplFile(src)
 		if err == ErrNoPackage {
 			continue
 		} else if err != nil {
@@ -479,7 +510,7 @@ func parseRepositoryImpls(
 	return impls, nil
 }
 
-func parseRepositoryImplFile(ctx context.Context, src []byte) (
+func parseRepositoryImplFile(src []byte) (
 	packageName string,
 	repImpls []string,
 	methods map[string][]string,
@@ -552,13 +583,7 @@ func parseRepositoryImplFile(ctx context.Context, src []byte) (
 					panic("receiver not found")
 				}
 				method := nodeSrc
-				found := false
-				for _, curMethod := range methods[curRec] {
-					if curMethod == method {
-						found = true
-						break
-					}
-				}
+				found := slices.Contains(methods[curRec], method)
 				if !found {
 					methods[curRec] = append(methods[curRec], method)
 				}
