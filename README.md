@@ -249,6 +249,7 @@ go build -o implgen .
 4. Add tests for new functionality
 5. Ensure all tests pass and code is linted
 6. Submit a pull request
+   j
 
 ## License
 
@@ -260,4 +261,3 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - [ ] Support for additional interface patterns
 - [ ] Integration with popular Go frameworks
 - [ ] IDE plugins for seamless development
-

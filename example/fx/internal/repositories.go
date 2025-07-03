@@ -2,22 +2,17 @@
 // This file will be automatically regenerated based on the API.
 package internal
 
-//go:generate moq -out=waltuh/nested/mocks.go -pkg=nestedimpl -rm -skip-ensure ../api/waltuh/nested Repository
-//go:generate moq -out=spongebob_squarepants/mocks.go -pkg=spongebobsquarepantsimpl -rm -skip-ensure ../api/spongebob_squarepants Repository
-//go:generate moq -out=waltuh/mocks.go -pkg=waltuhimpl -rm -skip-ensure ../api/waltuh AnotherRepository BRepository Repository
+//go:generate moq -out=heisenberg/mocks.go -pkg=heisenbergimpl -rm -skip-ensure ../api/heisenberg ChemistryRepository MoneyRepository
+//go:generate moq -out=spongebob/mocks.go -pkg=spongebobimpl -rm -skip-ensure ../api/spongebob JellyfishingRepository KrustyKrabRepository
 
 import (
-	spongebobsquarepantsimpl "example/internal/spongebob_squarepants"
-	waltuhimpl "example/internal/waltuh"
-	nestedimpl "example/internal/waltuh/nested"
-
-	"go.uber.org/fx"
+	heisenbergimpl "example/internal/heisenberg"
+	spongebobimpl "example/internal/spongebob"
 )
 
-var Repositories = fx.Options(
-	nestedimpl.Options,
-	spongebobsquarepantsimpl.Options,
-	waltuhimpl.Options,
-	waltuhimpl.AnotherOptions,
-	waltuhimpl.BOptions,
-)
+var RepositoryFactories = []any{
+	heisenbergimpl.NewChemistryRepository,
+	heisenbergimpl.NewMoneyRepository,
+	spongebobimpl.NewJellyfishingRepository,
+	spongebobimpl.NewKrustyKrabRepository,
+}

@@ -52,6 +52,9 @@ func (r RepositoryImpl) NewMethods() []*Method {
 		qualify = func(typ string) string {
 			n := len(typ)
 			typ = strings.TrimSpace(typ)
+			if typ == "" {
+				return ""
+			}
 			// Handle recursive types
 			if strings.HasPrefix(typ, "map[") {
 				start, end := getEnclosingBrackets(typ, '[', ']')
@@ -79,6 +82,9 @@ func (r RepositoryImpl) NewMethods() []*Method {
 					genericVars[i] = qualify(strings.TrimSpace(g))
 				}
 				return qualify(typ[:genericStart]) + "[" + strings.Join(genericVars, ", ") + "]"
+			}
+			if len(typ) == 0 {
+				return ""
 			}
 			isLower := 'a' <= typ[0] && typ[0] <= 'z'
 			// . implies package qualification, lowercase implies built-in

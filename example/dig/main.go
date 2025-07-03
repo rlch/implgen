@@ -4,26 +4,30 @@ import (
 	"context"
 	"fmt"
 
-	"example/api/waltuh"
+	"example/api/shrek"
 	"example/internal"
 
 	"go.uber.org/dig"
 )
 
 func main() {
-	dig := dig.New()
+	container := dig.New()
+
+	// Register all repository factories
 	for _, factory := range internal.RepositoryFactories {
-		if err := dig.Provide(factory); err != nil {
+		if err := container.Provide(factory); err != nil {
 			panic(err)
 		}
 	}
-	err := dig.Invoke(func(r waltuh.Repository) {
-		fmt.Println(r.KillKrazy8(
-			context.Background(),
-			10,
-		))
-	})
-	if err != nil {
+
+	// Use the repository
+	if err := container.Invoke(func(r shrek.SwampRepository) {
+		if err := r.CleanSwamp(context.Background()); err != nil {
+			panic(err)
+		} else {
+			fmt.Println("Cleaned the swamp successfully!")
+		}
+	}); err != nil {
 		panic(err)
 	}
 }
