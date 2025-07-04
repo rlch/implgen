@@ -4,10 +4,10 @@ package spongebobimpl
 
 import (
 	"context"
-
 	"example/api/spongebob"
 
-	"github.com/rotisserie/eris"
+	"github.com/Southclaws/fault"
+	"github.com/Southclaws/fault/fmsg"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
 	"go.uber.org/fx"
@@ -38,7 +38,7 @@ func (r *jellyfishingRepositoryImpl) CatchJellyfish(ctx context.Context, jellyfi
 	ctx, span := otel.GetTracerProvider().Tracer("spongebob").Start(ctx, "Jellyfishing.CatchJellyfish")
 	defer func() {
 		if err != nil {
-			err = eris.Wrap(err, "spongebob.JellyfishingRepository.CatchJellyfish")
+			err = fault.Wrap(err, fmsg.With("spongebob.JellyfishingRepository.CatchJellyfish"))
 			span.SetStatus(codes.Error, "")
 			span.RecordError(err)
 		}
@@ -52,7 +52,7 @@ func (r *jellyfishingRepositoryImpl) ReleaseJellyfish(ctx context.Context, jelly
 	ctx, span := otel.GetTracerProvider().Tracer("spongebob").Start(ctx, "Jellyfishing.ReleaseJellyfish")
 	defer func() {
 		if err != nil {
-			err = eris.Wrap(err, "spongebob.JellyfishingRepository.ReleaseJellyfish")
+			err = fault.Wrap(err, fmsg.With("spongebob.JellyfishingRepository.ReleaseJellyfish"))
 			span.SetStatus(codes.Error, "")
 			span.RecordError(err)
 		}
@@ -66,7 +66,7 @@ func (r *jellyfishingRepositoryImpl) CountJellyfish(ctx context.Context, area st
 	ctx, span := otel.GetTracerProvider().Tracer("spongebob").Start(ctx, "Jellyfishing.CountJellyfish")
 	defer func() {
 		if err != nil {
-			err = eris.Wrap(err, "spongebob.JellyfishingRepository.CountJellyfish")
+			err = fault.Wrap(err, fmsg.With("spongebob.JellyfishingRepository.CountJellyfish"))
 			span.SetStatus(codes.Error, "")
 			span.RecordError(err)
 		}
@@ -80,7 +80,7 @@ func (r *jellyfishingRepositoryImpl) GetBestSpot(ctx context.Context) (_ string,
 	ctx, span := otel.GetTracerProvider().Tracer("spongebob").Start(ctx, "Jellyfishing.GetBestSpot")
 	defer func() {
 		if err != nil {
-			err = eris.Wrap(err, "spongebob.JellyfishingRepository.GetBestSpot")
+			err = fault.Wrap(err, fmsg.With("spongebob.JellyfishingRepository.GetBestSpot"))
 			span.SetStatus(codes.Error, "")
 			span.RecordError(err)
 		}

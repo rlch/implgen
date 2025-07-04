@@ -72,7 +72,7 @@ task mod-download
    - Struct definitions with embedded dependencies
    - Method stubs with panic("TODO: implement...") 
    - OpenTelemetry tracing for methods with context
-   - Error wrapping with eris for methods returning errors
+   - Error wrapping with fault for methods returning errors
    - Dependency injection setup (fx.Options or dig providers)
 
 3. **File System (`fs.go`)**: Handles directory traversal, module detection, and path computation between API and implementation directories.
@@ -103,3 +103,7 @@ task mod-download
 - When using `--focus`, the stub file (`repositories.go`) is not generated
 - Always use `GOFLAGS=-mod=mod` or the Taskfile commands due to tree-sitter CGO requirements
 - The `go-tree-sitter` and `parser` directories are external dependencies and should not be modified
+
+## Claude Memories
+
+- You only need to use GOFLAGS=-mod=mod with go commands.

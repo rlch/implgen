@@ -403,7 +403,7 @@ func TestGenerateMethodImpl(t *testing.T) {
   func (r *repositoryImpl) A() (_ bool, err error) {
     defer func() {
       if err != nil {
-        err = eris.Wrap(err, "foo.Repository.A")
+        err = fault.Wrap(err, fmsg.With("foo.Repository.A"))
       }
     }()
     panic("TODO: implement foo.Repository.A")
@@ -456,7 +456,7 @@ func TestGenerateMethodImpl(t *testing.T) {
     ctx, span := otel.GetTracerProvider().Tracer("foo").Start(ctx, "Repository.A")
     defer func() {
       if err != nil {
-        err = eris.Wrap(err, "foo.Repository.A")
+        err = fault.Wrap(err, fmsg.With("foo.Repository.A"))
         span.SetStatus(codes.Error, "")
         span.RecordError(err)
       }
@@ -973,7 +973,13 @@ func TestGenerateRepositoryStubFile(t *testing.T) {
 // This file will be automatically regenerated based on the API.
 package internal
 
-import "go.uber.org/fx"
+import (
+	"go.uber.org/fx"
+
+	_ "github.com/Southclaws/fault"
+
+	_ "github.com/Southclaws/fault/fmsg"
+)
 
 var Repositories = fx.Options()
 `,
@@ -1022,6 +1028,10 @@ import (
 	"example/internal/waltuh"
 
 	"go.uber.org/fx"
+
+	_ "github.com/Southclaws/fault"
+
+	_ "github.com/Southclaws/fault/fmsg"
 )
 
 var Repositories = fx.Options(
@@ -1069,6 +1079,10 @@ import (
 	"example/internal/waltuhimpl"
 
 	"go.uber.org/fx"
+
+	_ "github.com/Southclaws/fault"
+
+	_ "github.com/Southclaws/fault/fmsg"
 )
 
 var Repositories = fx.Options(
@@ -1141,6 +1155,10 @@ package internal
 import (
 	"example/internal/jesseimpl"
 	"example/internal/waltuhimpl"
+
+	_ "github.com/Southclaws/fault"
+
+	_ "github.com/Southclaws/fault/fmsg"
 )
 
 var RepositoryFactories = []any{

@@ -29,7 +29,6 @@ require (
 )
 
 require (
-	github.com/Southclaws/fault v0.8.2 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/mattn/go-pointer v0.0.1 // indirect

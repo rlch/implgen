@@ -42,6 +42,13 @@ tasks:
     cmds:
       - GOFLAGS=-mod=mod go mod download
 
+  install:
+    desc: Install implgen binary to GOPATH/bin
+    deps:
+      - build
+    cmds:
+      - GOFLAGS=-mod=mod go install .
+
   clean:
     desc: Clean generated files and binaries
     cmds:

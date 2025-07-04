@@ -238,7 +238,7 @@ const generateMethodTemplate = `
     {{- if .Method.Returns.HasError }}
     defer func() {
       if err != nil {
-        err = eris.Wrap(err, "{{ .Repository.QualifiedName }}.{{ .Method.Ident }}")
+        err = fault.Wrap(err, fmsg.With("{{ .Repository.QualifiedName }}.{{ .Method.Ident }}"))
         span.SetStatus(codes.Error, "")
         span.RecordError(err)
       }
@@ -252,7 +252,7 @@ const generateMethodTemplate = `
     {{- if .Method.Returns.HasError }}
     defer func() {
       if err != nil {
-        err = eris.Wrap(err, "{{ .Repository.QualifiedName }}.{{ .Method.Ident }}")
+        err = fault.Wrap(err, fmsg.With("{{ .Repository.QualifiedName }}.{{ .Method.Ident }}"))
       }
     }()
     {{- end }}
@@ -536,6 +536,10 @@ package {{ .Package }}
 {{ range .Imports }}
 import {{ .Name }} "{{ .Path }}"
 {{- end }}
+import (
+	_ "github.com/Southclaws/fault"
+	_ "github.com/Southclaws/fault/fmsg"
+)
 
 var RepositoryFactories = []any{
 {{ range .Repositories -}}
@@ -557,6 +561,10 @@ package {{ .Package }}
 {{ range .Imports }}
 import {{ .Name }} "{{ .Path }}"
 {{- end }}
+import (
+	_ "github.com/Southclaws/fault"
+	_ "github.com/Southclaws/fault/fmsg"
+)
 
 var Repositories = fx.Options(
 {{ range .Repositories -}}
@@ -656,7 +664,10 @@ func collectImports(
 				)
 			}
 			if newMethod.Returns.HasError() {
-				allImports = append(allImports, Import{Name: "", Path: "github.com/rotisserie/eris"})
+				allImports = append(allImports, 
+					Import{Name: "", Path: "github.com/Southclaws/fault"},
+					Import{Name: "", Path: "github.com/Southclaws/fault/fmsg"},
+				)
 			}
 		}
 	}
