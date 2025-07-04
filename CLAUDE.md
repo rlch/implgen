@@ -10,18 +10,39 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Build
 ```bash
-go build -o implgen .
+# Using Taskfile (recommended)
+task build
+
+# Or directly
+GOFLAGS=-mod=mod go build -o implgen .
 ```
 
 ### Test
 ```bash
-go test ./...
+# Using Taskfile (recommended)
+task test
+
+# Or directly
+GOFLAGS=-mod=mod gotestsum -- $(go list ./... | grep -v implgen/go-tree-sitter | grep -v implgen/parser)
 ```
-Note: Tests will fail if tree-sitter dependencies are not properly built. Focus on the core implgen functionality tests.
 
 ### Lint
 ```bash
-golangci-lint run --config .golangci.yaml ./...
+# Using Taskfile (recommended)
+task lint
+
+# Or directly  
+GOFLAGS=-mod=mod golangci-lint run --config .golangci.yaml ./...
+```
+
+### Run
+```bash
+# Run implgen with arguments
+task run -- generate --help
+
+# Module management
+task mod-tidy
+task mod-download
 ```
 
 ### Generate Implementation Files
@@ -78,5 +99,7 @@ golangci-lint run --config .golangci.yaml ./...
 
 - The tool preserves existing implementations and only adds missing methods
 - Generated files include a header comment indicating they are auto-generated
-- The tool uses go-tree-sitter for parsing, which is vendored in the project
+- The tool uses `github.com/tree-sitter/go-tree-sitter` for parsing (requires mod mode due to CGO dependencies)
 - When using `--focus`, the stub file (`repositories.go`) is not generated
+- Always use `GOFLAGS=-mod=mod` or the Taskfile commands due to tree-sitter CGO requirements
+- The `go-tree-sitter` and `parser` directories are external dependencies and should not be modified

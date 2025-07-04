@@ -3,8 +3,6 @@ package minecraft
 import (
 	"context"
 	"time"
-	
-	"example/api/common"
 )
 
 // Basic types
@@ -63,8 +61,6 @@ type PlayerRepository interface {
 
 // CraftingRepository demonstrates interface composition across packages
 type CraftingRepository interface {
-	common.BaseRepository
-
 	// Map parameters and returns
 	Craft(ctx context.Context, recipe CraftingRecipe, inventory map[ItemID]int) (map[ItemID]int, error)
 

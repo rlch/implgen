@@ -7,7 +7,6 @@ import (
 
 	"example/api/minecraft"
 
-	"github.com/Southclaws/fault"
 	"github.com/rotisserie/eris"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
@@ -33,7 +32,7 @@ func (r *blockRepositoryImpl) PlaceBlock(ctx context.Context, blockType minecraf
 	ctx, span := otel.GetTracerProvider().Tracer("minecraft").Start(ctx, "Block.PlaceBlock")
 	defer func() {
 		if err != nil {
-			err = fault.Wrap(err, "minecraft.BlockRepository.PlaceBlock")
+			err = eris.Wrap(err, "minecraft.BlockRepository.PlaceBlock")
 			span.SetStatus(codes.Error, "")
 			span.RecordError(err)
 		}

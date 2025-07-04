@@ -1,0 +1,50 @@
+version: "3"
+
+tasks:
+  example:
+    desc: Generate both dig and fx examples
+    deps:
+      - build
+    cmds:
+      - echo "Generating dig example..."
+      - ./implgen generate --root example/dig --dig
+      - echo "Generating fx example..."
+      - ./implgen generate --root example/fx
+
+  test:
+    desc: Run all tests excluding parser vendor tests
+    cmds:
+      - |
+        GOFLAGS=-mod=mod gotestsum -- $(go list ./... | grep -v implgen/parser)
+
+  build:
+    desc: Build the implgen binary
+    cmds:
+      - GOFLAGS=-mod=mod go build -o implgen .
+
+  lint:
+    desc: Run linting with golangci-lint
+    cmds:
+      - GOFLAGS=-mod=mod golangci-lint run --config .golangci.yaml ./...
+
+  run:
+    desc: Run implgen with arguments
+    cmds:
+      - GOFLAGS=-mod=mod go run . {{.CLI_ARGS}}
+
+  tidy:
+    desc: Tidy go modules
+    cmds:
+      - GOFLAGS=-mod=mod go mod tidy
+
+  download:
+    desc: Download go modules
+    cmds:
+      - GOFLAGS=-mod=mod go mod download
+
+  clean:
+    desc: Clean generated files and binaries
+    cmds:
+      - rm -f implgen
+      - find example -name "*_impl.go" -delete
+      - find example -name "repositories.go" -delete

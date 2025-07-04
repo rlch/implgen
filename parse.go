@@ -19,8 +19,8 @@ import (
 	"strings"
 
 	"github.com/danielgtaylor/casing"
-	sitter "github.com/rlch/implgen/go-tree-sitter"
 	tsgo "github.com/rlch/implgen/parser/bindings/go"
+	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
 var (
@@ -29,7 +29,7 @@ var (
 
 	// tsparser is the global tree-sitter parser instance used for parsing Go source code.
 	tsparser *sitter.Parser
-	
+
 	// language represents the Go language grammar for tree-sitter parsing.
 	language *sitter.Language = sitter.NewLanguage(tsgo.Language())
 )
@@ -46,15 +46,18 @@ type (
 	// Repository represents a parsed Go interface ending with "Repository".
 	// It contains all the metadata needed to generate an implementation.
 	Repository struct {
-		Package     string    // Package name (e.g., "user")
-		PackagePath string    // Full path to the package directory
-		Filename    string    // Name of the file containing the interface
-		Ident       string    // Interface identifier (e.g., "UserRepository")
-		Generics    string    // Generic type parameters (e.g., "[T any]")
-		Methods     []*Method // All methods defined in the interface
-		Imports     []Import  // Import statements from the source file
+		Package       string    // Package name (e.g., "user")
+		PackagePath   string    // Full path to the package directory
+		Filename      string    // Name of the file containing the interface
+		Ident         string    // Interface identifier (e.g., "UserRepository")
+		Generics      string    // Generic type parameters (e.g., "[T any]")
+		Methods       []*Method // All methods defined in the interface
+		Imports       []Import  // Import statements from the source file
+		Embeds        []string  // Embedded interfaces in this repository
+		IgnoredEmbeds []string  // Embedded interfaces marked with //implgen:ignore
+		Ignored       bool      // Whether entire repository is marked with //implgen:ignore
 	}
-	
+
 	// RepositoryImpl extends Repository with implementation-specific metadata.
 	// It tracks what implementations already exist and where they should be generated.
 	RepositoryImpl struct {
@@ -65,28 +68,30 @@ type (
 		ImplFilename    string   // Name of the implementation file
 		ImplMethods     []string // Names of methods that already have implementations
 	}
-	
+
 	// Import represents a Go import statement.
 	Import struct {
 		Name string // Import alias (empty for no alias)
 		Path string // Import path
 	}
-	
+
 	// Method represents a single method in an interface.
 	Method struct {
 		Ident   string // Method name
 		Params  Params // Method parameters
 		Returns Params // Method return values
+		Ignored bool   // Whether method is marked with //implgen:ignore
 	}
-	
+
 	// Params is a slice of parameters or return values.
 	Params []*Param
-	
+
 	// Param represents a single parameter or return value.
 	Param struct {
 		Ident string // Parameter name (may be empty for unnamed parameters)
 		Type  string // Parameter type
 	}
+
 )
 
 // GenericsVariableList extracts the generic type variable names from the generics string.
@@ -159,6 +164,70 @@ func parseRepositoriesForPackage(
 	return repos, nil
 }
 
+// resolveEmbeddedInterfaces recursively resolves methods from embedded interfaces
+func resolveEmbeddedInterfaces(repos []*Repository) {
+	// Create a map for quick lookup of repositories by name
+	repoMap := make(map[string]*Repository)
+	for _, repo := range repos {
+		repoMap[repo.Ident] = repo
+	}
+	
+	// Process each repository
+	for _, repo := range repos {
+		resolveEmbeddedInterfacesForRepo(repo, repoMap, make(map[string]bool))
+	}
+}
+
+// resolveEmbeddedInterfacesForRepo resolves embedded interfaces for a single repository
+func resolveEmbeddedInterfacesForRepo(repo *Repository, repoMap map[string]*Repository, visited map[string]bool) {
+	// Prevent infinite recursion
+	if visited[repo.Ident] {
+		return
+	}
+	visited[repo.Ident] = true
+	
+	// Process each embedded interface
+	for _, embedName := range repo.Embeds {
+		if embeddedRepo, exists := repoMap[embedName]; exists {
+			// First resolve the embedded repository's own embedded interfaces
+			resolveEmbeddedInterfacesForRepo(embeddedRepo, repoMap, visited)
+			
+			// Add methods from the embedded interface
+			for _, method := range embeddedRepo.Methods {
+				// Check if method already exists to avoid duplicates
+				exists := false
+				for _, existingMethod := range repo.Methods {
+					if existingMethod.Ident == method.Ident {
+						exists = true
+						break
+					}
+				}
+				if !exists {
+					// Create a copy of the method
+					methodCopy := &Method{
+						Ident:   method.Ident,
+						Ignored: method.Ignored,
+					}
+					
+					// Copy params (handle nil case)
+					if method.Params != nil {
+						methodCopy.Params = make([]*Param, len(method.Params))
+						copy(methodCopy.Params, method.Params)
+					}
+					
+					// Copy returns (handle nil case)
+					if method.Returns != nil {
+						methodCopy.Returns = make([]*Param, len(method.Returns))
+						copy(methodCopy.Returns, method.Returns)
+					}
+					
+					repo.Methods = append(repo.Methods, methodCopy)
+				}
+			}
+		}
+	}
+}
+
 func parseRepositories(src []byte, tree *sitter.Tree) (repos []*Repository, err error) {
 	dstFile, err := parser.ParseFile(
 		fset,
@@ -188,15 +257,22 @@ func parseRepositories(src []byte, tree *sitter.Tree) (repos []*Repository, err 
 	}()
 
 	const (
-		PKG_CAPTURE = iota
-		CLASS_NAME_CAPTURE
-		GENERICS_CAPTURE
-		METHOD_NAME_CAPTURE
-		PARAMS_CAPTURE
-		RESULT_CAPTURE
+		PKG_CAPTURE = "pkg"
+		CLASS_NAME_CAPTURE = "class_name"
+		GENERICS_CAPTURE = "generics"
+		METHOD_NAME_CAPTURE = "method_name"
+		PARAMS_CAPTURE = "params"
+		RESULT_CAPTURE = "result"
+		TYPE_COMMENT_CAPTURE = "type_comment"
+		METHOD_COMMENT_CAPTURE = "method_comment"
+		EMBED_NAME_CAPTURE = "embed_name"
 	)
 	query, queryErr := sitter.NewQuery(language, `
 (package_clause (package_identifier) @pkg) 
+
+(comment) @type_comment
+
+(comment) @method_comment
 
 (type_spec
   name: (type_identifier) @class_name (#match? @class_name "Repository$")
@@ -210,12 +286,18 @@ func parseRepositories(src []byte, tree *sitter.Tree) (repos []*Repository, err 
         (parameter_list)
         (type_identifier)
         (qualified_type)
-       ]? @result)?))
+       ]? @result)?
+     (type_elem
+       (type_identifier) @embed_name)?))
     `)
 	if queryErr != nil {
 		return nil, fmt.Errorf("failed to create query: %s", queryErr)
 	}
 	defer query.Close()
+	
+	// Get capture names for string-based matching
+	captureNames := query.CaptureNames()
+	
 	cursor := sitter.NewQueryCursor()
 	defer cursor.Close()
 	qc := cursor.Captures(query, tree.RootNode(), src)
@@ -240,12 +322,14 @@ func parseRepositories(src []byte, tree *sitter.Tree) (repos []*Repository, err 
 		return nil, nil
 	}
 	var curIdx, methodIdx int
+	var pendingTypeComment, pendingMethodComment string
 	repos = append(repos, &Repository{})
 	for {
 		for _, c := range m.Captures {
 			repo := repos[curIdx]
 			nodeSrc := c.Node.Utf8Text(src)
-			switch c.Index {
+			captureName := captureNames[c.Index]
+			switch captureName {
 			case CLASS_NAME_CAPTURE:
 				name := nodeSrc
 				// NOTE: Apparently there's a problem with #match? directive, hacky
@@ -260,8 +344,20 @@ func parseRepositories(src []byte, tree *sitter.Tree) (repos []*Repository, err 
 					methodIdx = 0
 					curIdx++
 					repos = append(repos, &Repository{Ident: name})
+					repo = repos[curIdx]
 				} else if repo.Ident == "" {
 					repo.Ident = name
+				}
+				
+				// Apply pending type comment if it contains ignore directive
+				if pendingTypeComment != "" && strings.Contains(pendingTypeComment, "implgen:ignore") {
+					repo.Ignored = true
+				}
+				pendingTypeComment = "" // Clear after processing
+				
+				// Also clear method comment to prevent it from being applied to methods in an ignored repository
+				if repo.Ignored {
+					pendingMethodComment = ""
 				}
 			case GENERICS_CAPTURE:
 				repo.Generics = nodeSrc
@@ -285,13 +381,45 @@ func parseRepositories(src []byte, tree *sitter.Tree) (repos []*Repository, err 
 					}
 					if !found {
 						methodIdx = len(repo.Methods)
-						repo.Methods = append(repo.Methods, &Method{Ident: methodName})
+						curMethod = &Method{Ident: methodName}
+						repo.Methods = append(repo.Methods, curMethod)
 					}
 				}
+				
+				// Apply pending method comment if it contains ignore directive
+				if pendingMethodComment != "" && strings.Contains(pendingMethodComment, "implgen:ignore") {
+					repo.Methods[methodIdx].Ignored = true
+				}
+				pendingMethodComment = "" // Clear after processing
 			case PARAMS_CAPTURE:
 				repo.Methods[methodIdx].Params = parseParams(nodeSrc)
 			case RESULT_CAPTURE:
 				repo.Methods[methodIdx].Returns = parseParams(nodeSrc)
+			case TYPE_COMMENT_CAPTURE:
+				// Store comment for potential application to next repository
+				// Only store if it's an ignore comment to avoid capturing unrelated comments
+				if strings.Contains(nodeSrc, "implgen:ignore") {
+					pendingTypeComment = nodeSrc
+				}
+			case METHOD_COMMENT_CAPTURE:
+				// Store comment for potential application to next method
+				// Only store if it's an ignore comment to avoid capturing unrelated comments
+				if strings.Contains(nodeSrc, "implgen:ignore") {
+					pendingMethodComment = nodeSrc
+				}
+			case EMBED_NAME_CAPTURE:
+				embedName := nodeSrc
+				// Add embedded interface to current repository if not already present
+				found := false
+				for _, existing := range repo.Embeds {
+					if existing == embedName {
+						found = true
+						break
+					}
+				}
+				if !found {
+					repo.Embeds = append(repo.Embeds, embedName)
+				}
 			default:
 				slog.Error(
 					"unhandled",
@@ -308,6 +436,10 @@ func parseRepositories(src []byte, tree *sitter.Tree) (repos []*Repository, err 
 	if len(repos) == 1 && repos[0].Ident == "" {
 		return nil, nil
 	}
+	
+	// Resolve embedded interfaces
+	resolveEmbeddedInterfaces(repos)
+	
 	return
 }
 

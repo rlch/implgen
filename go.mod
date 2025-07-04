@@ -1,8 +1,8 @@
 module github.com/rlch/implgen
 
-go 1.23
+go 1.23.0
 
-toolchain go1.23.4
+toolchain go1.24.4
 
 require (
 	github.com/danielgtaylor/casing v1.0.0
@@ -15,20 +15,11 @@ require (
 )
 
 require (
-	github.com/mattn/go-pointer v0.0.1
-	github.com/tree-sitter/tree-sitter-c v0.23.4
-	github.com/tree-sitter/tree-sitter-cpp v0.23.4
-	github.com/tree-sitter/tree-sitter-embedded-template v0.23.2
-	github.com/tree-sitter/tree-sitter-go v0.23.5-0.20250130221006-5e73f476efaf
-	github.com/tree-sitter/tree-sitter-html v0.23.2
-	github.com/tree-sitter/tree-sitter-java v0.23.5
-	github.com/tree-sitter/tree-sitter-javascript v0.23.1
-	github.com/tree-sitter/tree-sitter-json v0.24.8
-	github.com/tree-sitter/tree-sitter-php v0.23.11
-	github.com/tree-sitter/tree-sitter-python v0.23.6
-	github.com/tree-sitter/tree-sitter-ruby v0.23.1
-	github.com/tree-sitter/tree-sitter-rust v0.23.2
+	github.com/rotisserie/eris v0.5.4
 	github.com/urfave/cli/v3 v3.0.0-beta1
+	go.opentelemetry.io/otel v1.37.0
+	go.uber.org/dig v1.19.0
+	go.uber.org/fx v1.24.0
 )
 
 require (
@@ -37,4 +28,16 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-require golang.org/x/sys v0.12.0 // indirect
+require (
+	github.com/Southclaws/fault v0.8.2 // indirect
+	github.com/go-logr/logr v1.4.3 // indirect
+	github.com/go-logr/stdr v1.2.2 // indirect
+	github.com/mattn/go-pointer v0.0.1 // indirect
+	github.com/tree-sitter/tree-sitter-go v0.23.5-0.20250130221006-5e73f476efaf // indirect
+	go.opentelemetry.io/auto/sdk v1.1.0 // indirect
+	go.opentelemetry.io/otel/metric v1.37.0 // indirect
+	go.opentelemetry.io/otel/trace v1.37.0 // indirect
+	go.uber.org/multierr v1.10.0 // indirect
+	go.uber.org/zap v1.26.0 // indirect
+	golang.org/x/sys v0.12.0 // indirect
+)

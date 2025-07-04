@@ -7,8 +7,6 @@ import (
 
 	"example/api/minecraft"
 
-	"github.com/Southclaws/fault"
-	"github.com/Southclaws/fault/fmsg"
 	"github.com/rotisserie/eris"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
@@ -34,7 +32,7 @@ func (r *craftingRepositoryImpl) TransferItems(ctx context.Context, fromPlayer, 
 	ctx, span := otel.GetTracerProvider().Tracer("minecraft").Start(ctx, "Crafting.TransferItems")
 	defer func() {
 		if err != nil {
-			err = fault.Wrap(err, fmsg.With("minecraft.CraftingRepository.TransferItems"))
+			err = eris.Wrap(err, "minecraft.CraftingRepository.TransferItems")
 			span.SetStatus(codes.Error, "")
 			span.RecordError(err)
 		}

@@ -9,6 +9,8 @@ type Healthable interface {
 
 // BaseRepository embeds Healthable and adds metrics
 type BaseRepository interface {
+	// implgen:ignore
 	Healthable
 	GetMetrics(ctx context.Context) (map[string]int64, error)
 }
+

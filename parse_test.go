@@ -378,6 +378,334 @@ func TestParseRepositories(t *testing.T) {
 				},
 			},
 		},
+		{
+			"implgen:ignore comments are parsed correctly",
+			`
+      package main
+
+      // This is a regular comment
+      type ARepository interface {
+        // Method comment
+        Method() error
+      }
+      
+      //implgen:ignore
+      type BRepository interface {
+        //implgen:ignore  
+        IgnoredMethod() error
+        RegularMethod() error
+      }
+      `,
+			[]*Repository{
+				{
+					Package: "main",
+					Ident:   "ARepository",
+					Ignored: false,
+					Methods: []*Method{
+						{Ident: "Method", Ignored: false, Returns: []*Param{{Type: "error"}}},
+					},
+				},
+				{
+					Package: "main",
+					Ident:   "BRepository",
+					Ignored: true, // Should be ignored due to //implgen:ignore
+					Methods: []*Method{
+						{Ident: "IgnoredMethod", Ignored: true, Returns: []*Param{{Type: "error"}}}, // Should be ignored
+						{Ident: "RegularMethod", Ignored: false, Returns: []*Param{{Type: "error"}}},
+					},
+				},
+			},
+		},
+		{
+			"entire repository can be ignored",
+			`
+      package main
+
+      type RegularRepository interface {
+        Method() error
+      }
+      
+      //implgen:ignore  
+      type IgnoredRepository interface {
+        SomeMethod() error
+        AnotherMethod() string
+      }
+      
+      type AnotherRepository interface {
+        FinalMethod() bool
+      }
+      `,
+			[]*Repository{
+				{
+					Package: "main",
+					Ident:   "RegularRepository",
+					Ignored: false,
+					Methods: []*Method{
+						{Ident: "Method", Ignored: false, Returns: []*Param{{Type: "error"}}},
+					},
+				},
+				{
+					Package: "main",
+					Ident:   "IgnoredRepository", 
+					Ignored: true, // Entire repository should be ignored
+					Methods: []*Method{
+						{Ident: "SomeMethod", Ignored: false, Returns: []*Param{{Type: "error"}}}, // Methods not individually ignored
+						{Ident: "AnotherMethod", Ignored: false, Returns: []*Param{{Type: "string"}}},
+					},
+				},
+				{
+					Package: "main",
+					Ident:   "AnotherRepository",
+					Ignored: false,
+					Methods: []*Method{
+						{Ident: "FinalMethod", Ignored: false, Returns: []*Param{{Type: "bool"}}},
+					},
+				},
+			},
+		},
+		{
+			"individual methods can be ignored",
+			`
+      package main
+
+      type TestRepository interface {
+        // Regular method
+        RegularMethod() error
+        
+        //implgen:ignore
+        IgnoredMethod() string
+        
+        // Another regular method
+        AnotherRegularMethod() bool
+        
+        //implgen:ignore
+        AnotherIgnoredMethod() int
+      }
+      `,
+			[]*Repository{
+				{
+					Package: "main",
+					Ident:   "TestRepository",
+					Ignored: false,
+					Methods: []*Method{
+						{Ident: "RegularMethod", Ignored: false, Returns: []*Param{{Type: "error"}}},
+						{Ident: "IgnoredMethod", Ignored: true, Returns: []*Param{{Type: "string"}}},
+						{Ident: "AnotherRegularMethod", Ignored: false, Returns: []*Param{{Type: "bool"}}},
+						{Ident: "AnotherIgnoredMethod", Ignored: true, Returns: []*Param{{Type: "int"}}},
+					},
+				},
+			},
+		},
+		{
+			"mixed ignore scenarios",
+			`
+      package main
+
+      // Regular repository
+      type RegularRepository interface {
+        Method() error
+      }
+      
+      //implgen:ignore
+      type IgnoredRepository interface {
+        SomeMethod() error
+      }
+      
+      type MixedRepository interface {
+        RegularMethod() error
+        
+        //implgen:ignore
+        IgnoredMethod() string
+        
+        AnotherRegularMethod() bool
+      }
+      `,
+			[]*Repository{
+				{
+					Package: "main",
+					Ident:   "RegularRepository",
+					Ignored: false,
+					Methods: []*Method{
+						{Ident: "Method", Ignored: false, Returns: []*Param{{Type: "error"}}},
+					},
+				},
+				{
+					Package: "main",
+					Ident:   "IgnoredRepository",
+					Ignored: true,
+					Methods: []*Method{
+						{Ident: "SomeMethod", Ignored: false, Returns: []*Param{{Type: "error"}}},
+					},
+				},
+				{
+					Package: "main",
+					Ident:   "MixedRepository",
+					Ignored: false,
+					Methods: []*Method{
+						{Ident: "RegularMethod", Ignored: false, Returns: []*Param{{Type: "error"}}},
+						{Ident: "IgnoredMethod", Ignored: true, Returns: []*Param{{Type: "string"}}},
+						{Ident: "AnotherRegularMethod", Ignored: false, Returns: []*Param{{Type: "bool"}}},
+					},
+				},
+			},
+		},
+		{
+			"comments with whitespace variations",
+			`
+      package main
+
+      // implgen:ignore
+      type WhitespaceRepository interface {
+        Method() error
+      }
+      
+      type AnotherRepository interface {
+        // implgen:ignore
+        Method() error
+        
+        //  implgen:ignore  
+        AnotherMethod() string
+      }
+      `,
+			[]*Repository{
+				{
+					Package: "main",
+					Ident:   "WhitespaceRepository",
+					Ignored: true,
+					Methods: []*Method{
+						{Ident: "Method", Ignored: false, Returns: []*Param{{Type: "error"}}},
+					},
+				},
+				{
+					Package: "main",
+					Ident:   "AnotherRepository",
+					Ignored: false,
+					Methods: []*Method{
+						{Ident: "Method", Ignored: true, Returns: []*Param{{Type: "error"}}},
+						{Ident: "AnotherMethod", Ignored: true, Returns: []*Param{{Type: "string"}}},
+					},
+				},
+			},
+		},
+		{
+			"ignore comments with additional text",
+			`
+      package main
+
+      // This is a comment with implgen:ignore directive
+      type CommentRepository interface {
+        Method() error
+      }
+      
+      type AnotherRepository interface {
+        // TODO: remove this method - implgen:ignore
+        Method() error
+        
+        // implgen:ignore - deprecated method
+        AnotherMethod() string
+      }
+      `,
+			[]*Repository{
+				{
+					Package: "main",
+					Ident:   "CommentRepository",
+					Ignored: true,
+					Methods: []*Method{
+						{Ident: "Method", Ignored: false, Returns: []*Param{{Type: "error"}}},
+					},
+				},
+				{
+					Package: "main",
+					Ident:   "AnotherRepository",
+					Ignored: false,
+					Methods: []*Method{
+						{Ident: "Method", Ignored: true, Returns: []*Param{{Type: "error"}}},
+						{Ident: "AnotherMethod", Ignored: true, Returns: []*Param{{Type: "string"}}},
+					},
+				},
+			},
+		},
+		{
+			"embedded interfaces are parsed",
+			`
+      package main
+
+      type BaseRepository interface {
+        Base() error
+      }
+
+      type UserRepository interface {
+        BaseRepository
+        GetUser() error
+      }
+      `,
+			[]*Repository{
+				{
+					Package: "main",
+					Ident:   "BaseRepository",
+					Methods: []*Method{
+						{Ident: "Base", Returns: []*Param{{Type: "error"}}},
+					},
+				},
+				{
+					Package: "main",
+					Ident:   "UserRepository",
+					Embeds: []string{"BaseRepository"},
+					Methods: []*Method{
+						{Ident: "GetUser", Returns: []*Param{{Type: "error"}}},
+						{Ident: "Base", Returns: []*Param{{Type: "error"}}}, // Should be resolved from BaseRepository
+					},
+				},
+			},
+		},
+		{
+			"nested embedded interfaces are resolved",
+			`
+      package main
+
+      type CoreRepository interface {
+        Core() error
+      }
+
+      type BaseRepository interface {
+        CoreRepository
+        Base() error
+      }
+
+      type UserRepository interface {
+        BaseRepository
+        GetUser() error
+      }
+      `,
+			[]*Repository{
+				{
+					Package: "main",
+					Ident:   "CoreRepository",
+					Methods: []*Method{
+						{Ident: "Core", Returns: []*Param{{Type: "error"}}},
+					},
+				},
+				{
+					Package: "main",
+					Ident:   "BaseRepository",
+					Embeds: []string{"CoreRepository"},
+					Methods: []*Method{
+						{Ident: "Base", Returns: []*Param{{Type: "error"}}},
+						{Ident: "Core", Returns: []*Param{{Type: "error"}}}, // From CoreRepository
+					},
+				},
+				{
+					Package: "main",
+					Ident:   "UserRepository",
+					Embeds: []string{"BaseRepository"},
+					Methods: []*Method{
+						{Ident: "GetUser", Returns: []*Param{{Type: "error"}}},
+						{Ident: "Base", Returns: []*Param{{Type: "error"}}}, // From BaseRepository
+						{Ident: "Core", Returns: []*Param{{Type: "error"}}}, // From CoreRepository via BaseRepository
+					},
+				},
+			},
+		},
 	} {
 		// slog.SetLogLoggerLevel(slog.LevelDebug)
 		t.Run(test.name, func(t *testing.T) {
@@ -689,6 +1017,7 @@ func testRepositories(t *testing.T, expected, actual []*Repository) {
 			require.Equal(expect.Methods[j], method)
 		}
 		require.ElementsMatch(expect.Imports, repo.Imports)
+		require.ElementsMatch(expect.Embeds, repo.Embeds)
 	}
 	require.Len(actual, len(expected), spew.Sdump(expected))
 }
