@@ -5,14 +5,14 @@ import (
 	"fmt"
 
 	"example/api/heisenberg"
-	"example/internal"
+	"example/repository"
 
 	"go.uber.org/fx"
 )
 
 func main() {
 	app := fx.New(
-		internal.Repositories,
+		repository.Repositories,
 		fx.Invoke(func(r heisenberg.ChemistryRepository) {
 			if batch, err := r.Cook(context.Background(), heisenberg.Formula{
 				Name:   "Blue Crystal",
