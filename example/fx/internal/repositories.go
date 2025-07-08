@@ -6,16 +6,6 @@ package internal
 //go:generate moq -out=spongebob/mocks.go -pkg=spongebobimpl -rm -skip-ensure ../api/spongebob JellyfishingRepository KrustyKrabRepository
 
 import (
-	"context"
-	"example"
-	"example/internal/heisenberg"
-	"example/internal/spongebob"
-	"time"
-
-	"github.com/Southclaws/fault"
-	"github.com/Southclaws/fault/fmsg"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/codes"
 	"go.uber.org/fx"
 
 	_ "github.com/Southclaws/fault"

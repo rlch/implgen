@@ -102,7 +102,8 @@ func generate(ctx context.Context, cmd *cli.Command) error {
 		allRepImpls = append(allRepImpls, repImpls...)
 		for filename, impls := range groupByImplFilename(repImpls) {
 			implPath := path.Join(implPackagePath, filename)
-			_, statErr := os.Stat(implPath)
+			fullImplPath := path.Join(fRoot, implPath)
+			_, statErr := os.Stat(fullImplPath)
 			exists := statErr == nil
 			data, err := generateRepositoryImplsForFile(fsys, implPath, impls)
 			if err != nil {
@@ -112,17 +113,17 @@ func generate(ctx context.Context, cmd *cli.Command) error {
 				continue
 			}
 			if err := os.MkdirAll(
-				path.Dir(implPath),
+				path.Dir(fullImplPath),
 				0755,
 			); err != nil {
-				return fmt.Errorf("failed to create directory for implementation file at %s: %w", implPath, err)
+				return fmt.Errorf("failed to create directory for implementation file at %s: %w", fullImplPath, err)
 			}
 			if err := os.WriteFile(
-				implPath,
+				fullImplPath,
 				[]byte(data),
 				0644,
 			); err != nil {
-				return fmt.Errorf("failed to write implementation file at %s: %w", implPath, err)
+				return fmt.Errorf("failed to write implementation file at %s: %w", fullImplPath, err)
 			}
 
 			var nNewImpls, nNewMethods int
@@ -156,7 +157,7 @@ func generate(ctx context.Context, cmd *cli.Command) error {
 			return fmt.Errorf("failed to generate repository stub file: %w", err)
 		}
 		if err := os.WriteFile(
-			path.Join(fImpl, "repositories.go"),
+			path.Join(fRoot, fImpl, "repositories.go"),
 			[]byte(stubSrc),
 			0644,
 		); err != nil {
