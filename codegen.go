@@ -29,8 +29,8 @@ import (
 
 // ImplTestPackage returns the test package name for the implementation package.
 // This follows Go's convention of using "_test" suffix for external test packages.
-func (r RepositoryImpl) ImplTestPackage() string {
-	return r.ImplPackage + "_test"
+func (c ContractImpl) ImplTestPackage() string {
+	return c.ImplPackage + "_test"
 }
 
 // NewMethods returns the list of methods that need to be implemented.
@@ -38,10 +38,10 @@ func (r RepositoryImpl) ImplTestPackage() string {
 // It compares the interface methods against the existing implementation methods
 // and returns only those that are missing. The returned methods have their
 // parameter and return types properly qualified with package names.
-func (r RepositoryImpl) NewMethods() []*Method {
+func (c ContractImpl) NewMethods() []*Method {
 	methods := []*Method{}
-	for _, method := range r.Methods {
-		existing := slices.Contains(r.ImplMethods, method.Ident)
+	for _, method := range c.Methods {
+		existing := slices.Contains(c.ImplMethods, method.Ident)
 		if existing {
 			continue
 		}
@@ -92,10 +92,10 @@ func (r RepositoryImpl) NewMethods() []*Method {
 				return typ
 			}
 			// handle case where we return a generic defined by repository
-			if slices.Contains(r.GenericsVariableList(), typ) {
+			if slices.Contains(c.GenericsVariableList(), typ) {
 				return typ
 			}
-			return r.Package + "." + typ
+			return c.Package + "." + typ
 		}
 		for i, arg := range method.Params {
 			arg := arg
@@ -201,34 +201,34 @@ func (p Params) ReturnsSrc() string {
 	return src
 }
 
-func (r Repository) QualifyString(s string) string {
-	name := r.Name()
+func (c Contract) QualifyString(s string) string {
+	name := c.Name()
 	if name == "Repository" {
 		return s
 	}
 	return name + s
 }
 
-func (r Repository) Name() string {
-	if len(r.Ident) > 10 && strings.HasSuffix(r.Ident, "Repository") {
-		return r.Ident[:len(r.Ident)-10]
+func (c Contract) Name() string {
+	if len(c.Ident) > 10 && strings.HasSuffix(c.Ident, "Repository") {
+		return c.Ident[:len(c.Ident)-10]
 	}
-	return r.Ident
+	return c.Ident
 }
 
-func (r Repository) ImplName() string {
-	if r.Ident == "" {
+func (c Contract) ImplName() string {
+	if c.Ident == "" {
 		return ""
 	}
-	name := r.Ident
+	name := c.Ident
 	return strings.ToLower(string(name[0])) + name[1:] + "Impl"
 }
 
-func (r Repository) QualifiedName() string {
-	if r.Package == "" {
-		return r.Ident
+func (c Contract) QualifiedName() string {
+	if c.Package == "" {
+		return c.Ident
 	}
-	return r.Package + "." + r.Ident
+	return c.Package + "." + c.Ident
 }
 
 const generateMethodTemplate = `
@@ -261,7 +261,7 @@ const generateMethodTemplate = `
   }
 `
 
-func generateMethodImpl(repository Repository, method Method) (string, error) {
+func generateMethodImpl(contract Contract, method Method) (string, error) {
 	tmpl, err := template.
 		New("generateMethodTemplate").
 		Funcs(template.FuncMap{
@@ -278,16 +278,16 @@ func generateMethodImpl(repository Repository, method Method) (string, error) {
 	}
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, struct {
-		Repository
+		Contract
 		Method
-	}{repository, method}); err != nil {
+	}{contract, method}); err != nil {
 		return "", fmt.Errorf("failed to execute template: %w", err)
 	}
 	return buf.String(), nil
 }
 
-// generateRepositoryImpl generates the method and struct declarations for a single repository.
-func generateRepositoryImpl(repository Repository) (string, error) {
+// generateContractImpl generates the method and struct declarations for a single contract.
+func generateContractImpl(contract Contract) (string, error) {
 	diPkg := "fx"
 	options := `
 var {{ .Repository.QualifyString "Options" }} = fx.Options(

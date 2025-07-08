@@ -34,7 +34,7 @@ func generate(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return fmt.Errorf("failed to walk API directory: %w", err)
 	}
-	allRepImpls := []*RepositoryImpl{}
+	allContractImpls := []*ContractImpl{}
 	focusGlobs := make([]glob.Glob, len(fFocus))
 	for i, focus := range fFocus {
 		glob, err := glob.Compile(focus)
@@ -63,21 +63,22 @@ func generate(ctx context.Context, cmd *cli.Command) error {
 			)
 			continue
 		}
-		repos, err := parseRepositoriesForPackage(
+		contracts, err := parseContractsForPackage(
 			fsys,
 			apiPackagePath,
 			packageFiles,
+			fSuffix,
 		)
 		if err != nil {
-			return fmt.Errorf("failed to parse repositories in %s: %w", apiPackagePath, err)
+			return fmt.Errorf("failed to parse contracts in %s: %w", apiPackagePath, err)
 		}
-		if len(repos) == 0 {
+		if len(contracts) == 0 {
 			continue
 		}
 		slog.Debug(
-			"Parsed repositories",
+			"Parsed contracts",
 			slog.String("api_path", apiPackagePath),
-			slog.Int("count", len(repos)),
+			slog.Int("count", len(contracts)),
 		)
 		implPackagePath, err := computeImplPackagePath(
 			fApi,
@@ -91,16 +92,16 @@ func generate(ctx context.Context, cmd *cli.Command) error {
 				err,
 			)
 		}
-		repImpls, err := parseRepositoryImpls(
+		contractImpls, err := parseContractImpls(
 			fsys,
 			implPackagePath,
-			repos,
+			contracts,
 		)
 		if err != nil {
-			return fmt.Errorf("failed to parse repository implementations: %w", err)
+			return fmt.Errorf("failed to parse contract implementations: %w", err)
 		}
-		allRepImpls = append(allRepImpls, repImpls...)
-		for filename, impls := range groupByImplFilename(repImpls) {
+		allContractImpls = append(allContractImpls, contractImpls...)
+		for filename, impls := range groupByImplFilename(contractImpls) {
 			implPath := path.Join(implPackagePath, filename)
 			_, statErr := os.Stat(implPath)
 			exists := statErr == nil
@@ -151,7 +152,7 @@ func generate(ctx context.Context, cmd *cli.Command) error {
 		}
 	}
 	if len(fFocus) == 0 {
-		stubSrc, err := generateRepositoryStubFile(fsys, fImpl, allRepImpls...)
+		stubSrc, err := generateRepositoryStubFile(fsys, fImpl, allContractImpls...)
 		if err != nil {
 			return fmt.Errorf("failed to generate repository stub file: %w", err)
 		}
@@ -169,27 +170,27 @@ func generate(ctx context.Context, cmd *cli.Command) error {
 	return nil
 }
 
-// groupByPackage groups repository implementations by their API package name.
-// This is used to organize repositories for mock generation directives.
-func groupByPackage(repositories []*RepositoryImpl) map[string][]*RepositoryImpl {
-	grouped := make(map[string][]*RepositoryImpl)
-	for _, repository := range repositories {
-		grouped[repository.Package] = append(
-			grouped[repository.Package],
-			repository,
+// groupByPackage groups contract implementations by their API package name.
+// This is used to organize contracts for mock generation directives.
+func groupByPackage(contracts []*ContractImpl) map[string][]*ContractImpl {
+	grouped := make(map[string][]*ContractImpl)
+	for _, contract := range contracts {
+		grouped[contract.Package] = append(
+			grouped[contract.Package],
+			contract,
 		)
 	}
 	return grouped
 }
 
-// groupByImplFilename groups repository implementations by their implementation filename.
-// This ensures that repositories that should be in the same file are processed together.
-func groupByImplFilename(repositories []*RepositoryImpl) map[string][]*RepositoryImpl {
-	grouped := make(map[string][]*RepositoryImpl)
-	for _, repository := range repositories {
-		grouped[repository.ImplFilename] = append(
-			grouped[repository.ImplFilename],
-			repository,
+// groupByImplFilename groups contract implementations by their implementation filename.
+// This ensures that contracts that should be in the same file are processed together.
+func groupByImplFilename(contracts []*ContractImpl) map[string][]*ContractImpl {
+	grouped := make(map[string][]*ContractImpl)
+	for _, contract := range contracts {
+		grouped[contract.ImplFilename] = append(
+			grouped[contract.ImplFilename],
+			contract,
 		)
 	}
 	return grouped

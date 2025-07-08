@@ -66,6 +66,12 @@ var (
 						Usage:       "Use dig for dependency injection instead of fx.",
 						Destination: &fUseDig,
 					},
+					&cli.StringFlag{
+						Name:        "suffix",
+						Usage:       "Interface suffix to detect and generate implementations for (e.g., Repository, Service).",
+						Value:       "Repository",
+						Destination: &fSuffix,
+					},
 				},
 			},
 		},
@@ -96,6 +102,7 @@ var (
 	fImpl   string   // Implementation directory relative to root
 	fFocus  []string // Glob patterns to focus on specific packages
 	fUseDig bool     // Whether to use dig instead of fx for dependency injection
+	fSuffix string   // Interface suffix to detect (e.g., "Repository", "Service")
 
 	verbose bool // Whether to enable verbose logging
 )
