@@ -7,6 +7,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 
 	"github.com/gobwas/glob"
 	"github.com/urfave/cli/v3"
@@ -180,18 +181,20 @@ func generate(ctx context.Context, cmd *cli.Command) error {
 		}
 	}
 	if len(fFocus) == 0 {
-		stubSrc, err := generateContractStubFile(fsys, fImpl, allContractImpls...)
+		stubSrc, err := generateContractStubFile(fsys, fImpl, fSuffix, allContractImpls...)
 		if err != nil {
-			return fmt.Errorf("failed to generate repository stub file: %w", err)
+			return fmt.Errorf("failed to generate %s stub file: %w", strings.ToLower(fSuffix), err)
 		}
+		stubFileName := strings.ToLower(fSuffix) + ".go"
+		stubFullPath := path.Join(fRoot, fImpl, stubFileName)
 		if err := os.WriteFile(
-			path.Join(fRoot, fImpl, "repositories.go"),
+			stubFullPath,
 			[]byte(stubSrc),
 			0644,
 		); err != nil {
-			return fmt.Errorf("failed to write repository stub file: %w", err)
+			return fmt.Errorf("failed to write %s stub file: %w", fSuffix, err)
 		}
-		slog.Debug("Generated repository stub file")
+		slog.Info("Generated stub file", slog.String("path", path.Join(fImpl, stubFileName)))
 	} else {
 		slog.Debug("Focus provided, skipping stub generation")
 	}

@@ -4,7 +4,6 @@ package heisenbergimpl
 
 import (
 	"context"
-
 	"example/api/heisenberg"
 
 	"github.com/Southclaws/fault"

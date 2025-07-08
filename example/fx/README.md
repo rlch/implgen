@@ -1,35 +1,37 @@
 # FX Example
 
-This example demonstrates using implgen with Uber's fx dependency injection framework.
+This example demonstrates using implgen with Uber's fx dependency injection framework for both Repository and Service patterns.
 
 ## Overview
 
-This example project shows how implgen generates implementation files with fx-compatible dependency injection setup. It includes multiple repository interfaces in different packages to showcase various patterns.
+This example project shows how implgen generates implementation files with fx-compatible dependency injection setup. It demonstrates generating implementations for different interface patterns (Repository and Service) in separate directories.
 
 ## Project Structure
 
 ```
 example/fx/
 ├── api/                           # Interface definitions
-│   ├── spongebob_squarepants/
-│   │   └── repository.go          # Simple repository interface
-│   └── waltuh/
-│       ├── another.go             # Multiple repositories in one package
-│       ├── entity.go              # Entity definitions
-│       ├── nested/
-│       │   └── repository.go      # Nested package repository
-│       └── repository.go          # Main repository with various method patterns
-├── internal/                      # Generated implementations
-│   ├── repositories.go            # FX dependency injection setup
-│   ├── spongebob_squarepants/
-│   │   ├── b.go                   # Additional implementation
-│   │   └── repository_impl.go     # Generated implementation
-│   └── waltuh/
-│       ├── another_impl.go        # Generated implementation
-│       ├── b_impl.go              # Generated implementation
-│       ├── nested/
-│       │   └── repository_impl.go # Nested implementation
-│       └── repository_impl.go     # Main repository implementation
+│   ├── heisenberg/
+│   │   ├── repository.go          # Repository interfaces (ChemistryRepository, MoneyRepository)
+│   │   └── service.go             # Service interfaces (NotificationService)
+│   └── spongebob/
+│       ├── repository.go          # Repository interfaces (JellyfishingRepository, KrustyKrabRepository)
+│       └── service.go             # Service interfaces (PattyService, FryService)
+├── repository/                    # Generated repository implementations
+│   ├── repository.go              # FX dependency injection setup for repositories
+│   ├── heisenberg/
+│   │   ├── chemistry_impl.go      # ChemistryRepository implementation
+│   │   └── money_impl.go          # MoneyRepository implementation
+│   └── spongebob/
+│       ├── jellyfishing_impl.go   # JellyfishingRepository implementation
+│       └── krusty_krab_impl.go    # KrustyKrabRepository implementation
+├── service/                       # Generated service implementations
+│   ├── service.go                 # FX dependency injection setup for services
+│   ├── heisenberg/
+│   │   └── notification_impl.go   # NotificationService implementation
+│   └── spongebob/
+│       ├── patty_impl.go          # PattyService implementation
+│       └── fry_impl.go            # FryService implementation
 ├── gen.go                         # go:generate directive
 ├── go.mod
 ├── go.sum
@@ -38,73 +40,114 @@ example/fx/
 
 ## Interface Examples
 
-### Simple Repository
+### Repository Pattern
 
 ```go
-// api/spongebob_squarepants/repository.go
-type Repository interface {
-    GetKrabbyPatty(ctx context.Context) (KrabbyPatty, error)
-    MakeKrabbyPatty(ctx context.Context, patty KrabbyPatty) error
+// api/heisenberg/repository.go
+type ChemistryRepository interface {
+    Cook(ctx context.Context, formula Formula) (*Batch, error)
+    GetBatch(ctx context.Context, id string) (*Batch, error)
+    OptimizeFormula(formula Formula) (Formula, []string, error)
+    TestMethod(ctx context.Context, input string) (string, error)
+}
+
+type MoneyRepository interface {
+    Launder(ctx context.Context, amount *float64) (*float64, error)
+    ProcessPayments(ctx context.Context, amounts []float64) ([]string, error)
 }
 ```
 
-### Multiple Repositories
+### Service Pattern
 
 ```go
-// api/waltuh/another.go
-type AnotherRepository interface {
-    DoSomething(ctx context.Context) error
+// api/heisenberg/service.go
+type NotificationService interface {
+    SendAlert(ctx context.Context, message string) error
+    GetStatus(ctx context.Context, id string) (string, error)
 }
 
-type BRepository interface {
-    Yep(ctx context.Context, id string) (string, error)
-    Yope() (string, error)
+// api/spongebob/service.go
+type PattyService interface {
+    GrillPatty(ctx context.Context, orderID string) error
+    IsPattyReady(ctx context.Context, orderID string) (bool, error)
+    ServePatty(ctx context.Context, orderID string, customerName string) error
 }
 ```
 
-### Complex Repository with Various Patterns
+## Usage
 
-```go
-// api/waltuh/repository.go
-type Repository interface {
-    // Method without context (no tracing)
-    MakeBreakfast(birthday, kilograms int) Waltuh
-    
-    // Method with context (gets tracing)
-    SynthesizeMeth(ctx context.Context, flyPresent bool, withJesse bool) int
-    
-    // Method with context and error (gets tracing + error wrapping)
-    MakeMoney(ctx context.Context, poundsOfMeth int) (int, error)
-    
-    // Method with no parameters or return values
-    Nope()
-}
+### Generate Repository Implementations
+
+```bash
+# Generate all repository implementations in the repository/ directory
+./implgen generate --suffix Repository --api api --impl repository
+
+# This generates:
+# - repository/repository.go (fx.Options for all repositories)
+# - repository/heisenberg/chemistry_impl.go
+# - repository/heisenberg/money_impl.go
+# - repository/spongebob/jellyfishing_impl.go
+# - repository/spongebob/krusty_krab_impl.go
 ```
 
-## Generated Code Features
+### Generate Service Implementations
 
-### FX Dependency Injection
+```bash
+# Generate all service implementations in the service/ directory
+./implgen generate --suffix Service --api api --impl service
 
-Each repository gets:
+# This generates:
+# - service/service.go (fx.Options for all services)
+# - service/heisenberg/notification_impl.go
+# - service/spongebob/patty_impl.go
+# - service/spongebob/fry_impl.go
+```
 
-1. **Dependencies struct with fx.In**:
-   ```go
-   type Dependencies struct {
-       fx.In
-       // Add dependencies here
-   }
-   ```
+## Generated Features
 
-2. **fx.Options export**:
-   ```go
-   var Options = fx.Options(
-       fx.Provide(
-           NewRepository,
-       ),
-   )
-   ```
+Each generated implementation includes:
 
-3. **Constructor function**:
+- **Proper package structure** with impl suffix (e.g., `heisenbergimpl`)
+- **Dependency injection setup** using fx.In and fx.Options
+- **OpenTelemetry tracing** for methods with context.Context
+- **Error wrapping** with fault library for methods returning errors
+- **Mock generation directives** using moq
+- **Stub implementations** with TODO panics for all interface methods
+
+## Key Files
+
+### Repository Stub (`repository/repository.go`)
+
+```go
+var Repositories = fx.Options(
+    heisenbergimpl.ChemistryOptions,
+    heisenbergimpl.MoneyOptions,
+    spongebobimpl.JellyfishingOptions,
+    spongebobimpl.KrustyKrabOptions,
+)
+```
+
+### Service Stub (`service/service.go`)
+
+```go
+var Services = fx.Options(
+    heisenbergimpl.NotificationOptions,
+    spongebobimpl.FryOptions,
+    spongebobimpl.PattyOptions,
+)
+```
+
+## Running the Example
+
+```bash
+# Build the application
+go build -o example .
+
+# Run with repositories and services
+./example
+```
+
+This example showcases the full flexibility of implgen's generalized interface implementation generation, supporting both Repository and Service patterns in separate, organized directories.
    ```go
    func NewRepository(deps Dependencies) waltuh.Repository {
        return &repositoryImpl{

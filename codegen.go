@@ -441,6 +441,7 @@ package %s
 func generateContractStubFile(
 	fsys fs.FS,
 	packagePath string,
+	suffix string,
 	contracts ...*ContractImpl,
 ) (string, error) {
 	type MockDirective struct {
@@ -454,6 +455,8 @@ func generateContractStubFile(
 		Imports        []Import
 		Contracts   []*ContractImpl
 		MockDirectives []MockDirective
+		VariableName   string
+		Suffix         string
 	}
 	sort.Slice(contracts, func(i, j int) bool {
 		a := contracts[i]
@@ -505,6 +508,13 @@ func generateContractStubFile(
 	})
 
 	templateData.Contracts = contracts
+	templateData.Suffix = suffix
+	// Variable name is plural of suffix (e.g., Repository -> Repositories, Service -> Services)
+	templateData.VariableName = suffix + "s"
+	if strings.HasSuffix(suffix, "y") {
+		// Repository -> Repositories
+		templateData.VariableName = suffix[:len(suffix)-1] + "ies"
+	}
 	pkgImport, pkgAlias, err := loadLocalPackage(fsys, nil, packagePath)
 	if err != nil {
 		return "", err
@@ -546,7 +556,7 @@ import (
 	_ "github.com/Southclaws/fault/fmsg"
 )
 
-var RepositoryFactories = []any{
+var {{ .Suffix }}Factories = []any{
 {{ range .Contracts -}}
   {{ if not .Generics -}} 
   {{ .ImplPackage }}.New{{ .Ident }},
@@ -572,7 +582,7 @@ import (
 	_ "github.com/Southclaws/fault/fmsg"
 )
 
-var Repositories = fx.Options(
+var {{ .VariableName }} = fx.Options(
 {{ range .Contracts -}}
   {{ if not .Generics -}} 
   {{ .ImplPackage }}.{{ .QualifyString "Options" }},

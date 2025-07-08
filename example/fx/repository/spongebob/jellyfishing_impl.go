@@ -4,7 +4,6 @@ package spongebobimpl
 
 import (
 	"context"
-
 	"example/api/spongebob"
 
 	"github.com/Southclaws/fault"
