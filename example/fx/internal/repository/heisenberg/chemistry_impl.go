@@ -1,10 +1,9 @@
-// This file will be automatically regenerated based on the API. Any repository implementations
+// This file will be automatically regenerated based on the API. Any contract implementations
 // will be copied through when generating and new methods will be added to the end.
 package heisenbergimpl
 
 import (
 	"context"
-
 	"example/api/heisenberg"
 
 	"github.com/Southclaws/fault"
@@ -70,4 +69,18 @@ func (r *chemistryRepositoryImpl) OptimizeFormula(formula heisenberg.Formula) (_
 		}
 	}()
 	panic("TODO: implement heisenberg.ChemistryRepository.OptimizeFormula")
+}
+
+func (r *chemistryRepositoryImpl) TestMethod(ctx context.Context, input string) (_ string, err error) {
+	ctx, span := otel.GetTracerProvider().Tracer("heisenberg").Start(ctx, "Chemistry.TestMethod")
+	defer func() {
+		if err != nil {
+			err = fault.Wrap(err, fmsg.With("heisenberg.ChemistryRepository.TestMethod"))
+			span.SetStatus(codes.Error, "")
+			span.RecordError(err)
+		}
+		span.End()
+	}()
+	_ = ctx
+	panic("TODO: implement heisenberg.ChemistryRepository.TestMethod")
 }

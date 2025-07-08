@@ -29,8 +29,8 @@ import (
 
 // ImplTestPackage returns the test package name for the implementation package.
 // This follows Go's convention of using "_test" suffix for external test packages.
-func (r RepositoryImpl) ImplTestPackage() string {
-	return r.ImplPackage + "_test"
+func (c ContractImpl) ImplTestPackage() string {
+	return c.ImplPackage + "_test"
 }
 
 // NewMethods returns the list of methods that need to be implemented.
@@ -38,10 +38,10 @@ func (r RepositoryImpl) ImplTestPackage() string {
 // It compares the interface methods against the existing implementation methods
 // and returns only those that are missing. The returned methods have their
 // parameter and return types properly qualified with package names.
-func (r RepositoryImpl) NewMethods() []*Method {
+func (c ContractImpl) NewMethods() []*Method {
 	methods := []*Method{}
-	for _, method := range r.Methods {
-		existing := slices.Contains(r.ImplMethods, method.Ident)
+	for _, method := range c.Methods {
+		existing := slices.Contains(c.ImplMethods, method.Ident)
 		if existing {
 			continue
 		}
@@ -92,10 +92,10 @@ func (r RepositoryImpl) NewMethods() []*Method {
 				return typ
 			}
 			// handle case where we return a generic defined by repository
-			if slices.Contains(r.GenericsVariableList(), typ) {
+			if slices.Contains(c.GenericsVariableList(), typ) {
 				return typ
 			}
-			return r.Package + "." + typ
+			return c.Package + "." + typ
 		}
 		for i, arg := range method.Params {
 			arg := arg
@@ -201,44 +201,48 @@ func (p Params) ReturnsSrc() string {
 	return src
 }
 
-func (r Repository) QualifyString(s string) string {
-	name := r.Name()
+func (c Contract) QualifyString(s string) string {
+	name := c.Name()
 	if name == "Repository" {
 		return s
 	}
 	return name + s
 }
 
-func (r Repository) Name() string {
-	if len(r.Ident) > 10 && strings.HasSuffix(r.Ident, "Repository") {
-		return r.Ident[:len(r.Ident)-10]
+func (c Contract) Name() string {
+	// Extract the base name by removing the suffix
+	// This works for any suffix (Repository, Service, Handler, etc.)
+	for _, suffix := range []string{"Repository", "Service", "Handler", "Manager", "Controller"} {
+		if strings.HasSuffix(c.Ident, suffix) {
+			return c.Ident[:len(c.Ident)-len(suffix)]
+		}
 	}
-	return r.Ident
+	return c.Ident
 }
 
-func (r Repository) ImplName() string {
-	if r.Ident == "" {
+func (c Contract) ImplName() string {
+	if c.Ident == "" {
 		return ""
 	}
-	name := r.Ident
+	name := c.Ident
 	return strings.ToLower(string(name[0])) + name[1:] + "Impl"
 }
 
-func (r Repository) QualifiedName() string {
-	if r.Package == "" {
-		return r.Ident
+func (c Contract) QualifiedName() string {
+	if c.Package == "" {
+		return c.Ident
 	}
-	return r.Package + "." + r.Ident
+	return c.Package + "." + c.Ident
 }
 
 const generateMethodTemplate = `
-  func (r *{{ .Repository.ImplName }}{{ .Repository.GenericsInstance }}) {{ .Method.Ident }}({{ .Method.Params.ParamsSrc }}){{ pad .Method.Returns.ReturnsSrc }}{
+  func (r *{{ .Contract.ImplName }}{{ .Contract.GenericsInstance }}) {{ .Method.Ident }}({{ .Method.Params.ParamsSrc }}){{ pad .Method.Returns.ReturnsSrc }}{
   {{- if .Method.Params.HasCtx }}
-    ctx, span := otel.GetTracerProvider().Tracer("{{ .Repository.Package }}").Start(ctx, "{{ .Repository.Name }}.{{ .Method.Ident }}")
+    ctx, span := otel.GetTracerProvider().Tracer("{{ .Contract.Package }}").Start(ctx, "{{ .Contract.Name }}.{{ .Method.Ident }}")
     {{- if .Method.Returns.HasError }}
     defer func() {
       if err != nil {
-        err = fault.Wrap(err, fmsg.With("{{ .Repository.QualifiedName }}.{{ .Method.Ident }}"))
+        err = fault.Wrap(err, fmsg.With("{{ .Contract.QualifiedName }}.{{ .Method.Ident }}"))
         span.SetStatus(codes.Error, "")
         span.RecordError(err)
       }
@@ -252,16 +256,16 @@ const generateMethodTemplate = `
     {{- if .Method.Returns.HasError }}
     defer func() {
       if err != nil {
-        err = fault.Wrap(err, fmsg.With("{{ .Repository.QualifiedName }}.{{ .Method.Ident }}"))
+        err = fault.Wrap(err, fmsg.With("{{ .Contract.QualifiedName }}.{{ .Method.Ident }}"))
       }
     }()
     {{- end }}
   {{- end }}
-    panic("TODO: implement {{ .Repository.QualifiedName }}.{{ .Method.Ident }}")
+    panic("TODO: implement {{ .Contract.QualifiedName }}.{{ .Method.Ident }}")
   }
 `
 
-func generateMethodImpl(repository Repository, method Method) (string, error) {
+func generateMethodImpl(contract Contract, method Method) (string, error) {
 	tmpl, err := template.
 		New("generateMethodTemplate").
 		Funcs(template.FuncMap{
@@ -278,70 +282,70 @@ func generateMethodImpl(repository Repository, method Method) (string, error) {
 	}
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, struct {
-		Repository
+		Contract
 		Method
-	}{repository, method}); err != nil {
+	}{contract, method}); err != nil {
 		return "", fmt.Errorf("failed to execute template: %w", err)
 	}
 	return buf.String(), nil
 }
 
-// generateRepositoryImpl generates the method and struct declarations for a single repository.
-func generateRepositoryImpl(repository Repository) (string, error) {
+// generateContractImpl generates the method and struct declarations for a single contract.
+func generateContractImpl(contract Contract) (string, error) {
 	diPkg := "fx"
 	options := `
-var {{ .Repository.QualifyString "Options" }} = fx.Options(
+var {{ .Contract.QualifyString "Options" }} = fx.Options(
 	fx.Provide(
-		New{{ .Repository.Ident }},
+		New{{ .Contract.Ident }},
 	),
 )
 `
 	if fUseDig {
 		diPkg = "dig"
 		options = ""
-	} else if repository.Generics != "" {
+	} else if contract.Generics != "" {
 		options = ""
 	}
-	generateRepositoryImplTemplate := `
-type {{ .Repository.QualifyString "Dependencies" }}{{ .Repository.Generics }} struct {
+	generateContractImplTemplate := `
+type {{ .Contract.QualifyString "Dependencies" }}{{ .Contract.Generics }} struct {
   ` + diPkg + `.In
 	// Add dependencies here
 }
 ` + options + `
-func New{{ .Repository.Ident }}{{ .Repository.Generics }}(deps {{ .Repository.QualifyString "Dependencies" }}{{ .Repository.GenericsInstance }}) {{ .Repository.Package }}.{{ .Repository.Ident }}{{ .Repository.GenericsInstance }} {
-	return &{{ .Repository.ImplName }}{{ .Repository.GenericsInstance }}{
-    {{ .Repository.QualifyString "Dependencies" }}: deps,
+func New{{ .Contract.Ident }}{{ .Contract.Generics }}(deps {{ .Contract.QualifyString "Dependencies" }}{{ .Contract.GenericsInstance }}) {{ .Contract.Package }}.{{ .Contract.Ident }}{{ .Contract.GenericsInstance }} {
+	return &{{ .Contract.ImplName }}{{ .Contract.GenericsInstance }}{
+    {{ .Contract.QualifyString "Dependencies" }}: deps,
 	}
 }
 
-type {{ .Repository.ImplName }}{{ .Repository.Generics }} struct {
-  {{ .Repository.QualifyString "Dependencies" }}{{ .Repository.GenericsInstance }}
+type {{ .Contract.ImplName }}{{ .Contract.Generics }} struct {
+  {{ .Contract.QualifyString "Dependencies" }}{{ .Contract.GenericsInstance }}
 }
 `
 	tmpl, err := template.
-		New("generateRepositoryImplTemplate").
-		Parse(generateRepositoryImplTemplate)
+		New("generateContractImplTemplate").
+		Parse(generateContractImplTemplate)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse template: %w", err)
 	}
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, struct {
-		Repository
-	}{repository}); err != nil {
+		Contract
+	}{contract}); err != nil {
 		return "", fmt.Errorf("failed to execute template: %w", err)
 	}
 	return buf.String(), nil
 }
 
-// generateRepositoryImplsForFile generates the repository implementations for a single file.
+// generateContractImplsForFile generates the contract implementations for a single file.
 //
-// All RepositoryImpl's are assumed to be for the same file as repositories[0].
-func generateRepositoryImplsForFile(
+// All ContractImpl's are assumed to be for the same file as contracts[0].
+func generateContractImplsForFile(
 	fsys fs.FS,
 	filepath string,
-	repositories []*RepositoryImpl,
+	contracts []*ContractImpl,
 ) (_ string, err error) {
-	if len(repositories) == 0 {
+	if len(contracts) == 0 {
 		return "", nil
 	}
 	var (
@@ -375,10 +379,10 @@ func generateRepositoryImplsForFile(
 		}
 	} else {
 		packageDecl := fmt.Sprintf(`
-// This file will be automatically regenerated based on the API. Any repository implementations
+// This file will be automatically regenerated based on the API. Any contract implementations
 // will be copied through when generating and new methods will be added to the end.
 package %s
-`, repositories[0].ImplPackage)
+`, contracts[0].ImplPackage)
 		src.WriteString(strings.TrimPrefix(packageDecl, "\n"))
 	}
 
@@ -389,7 +393,7 @@ package %s
 		true,
 		false,
 		nil,
-		repositories...,
+		contracts...,
 	)
 	if err != nil {
 		return "", err
@@ -409,12 +413,12 @@ package %s
 		}
 	}
 
-	// Append new repository declarations
-	for _, repository := range repositories {
-		if !repository.IsNew {
+	// Append new contract declarations
+	for _, contract := range contracts {
+		if !contract.IsNew {
 			continue
 		}
-		impl, err := generateRepositoryImpl(repository.Repository)
+		impl, err := generateContractImpl(contract.Contract)
 		if err != nil {
 			return "", err
 		}
@@ -422,9 +426,9 @@ package %s
 	}
 
 	// Append new methods
-	for _, repository := range repositories {
-		for _, newMethod := range repository.NewMethods() {
-			methodImpl, err := generateMethodImpl(repository.Repository, *newMethod)
+	for _, contract := range contracts {
+		for _, newMethod := range contract.NewMethods() {
+			methodImpl, err := generateMethodImpl(contract.Contract, *newMethod)
 			if err != nil {
 				return "", err
 			}
@@ -434,26 +438,29 @@ package %s
 	return formatImports(filepath, src.Bytes())
 }
 
-func generateRepositoryStubFile(
+func generateContractStubFile(
 	fsys fs.FS,
 	packagePath string,
-	repositories ...*RepositoryImpl,
+	suffix string,
+	contracts ...*ContractImpl,
 ) (string, error) {
 	type MockDirective struct {
 		Src          string
 		Dst          string
 		ImplPackage  string
-		Repositories []string
+		Contracts []string
 	}
 	var templateData struct {
 		Package        string
 		Imports        []Import
-		Repositories   []*RepositoryImpl
+		Contracts   []*ContractImpl
 		MockDirectives []MockDirective
+		VariableName   string
+		Suffix         string
 	}
-	sort.Slice(repositories, func(i, j int) bool {
-		a := repositories[i]
-		b := repositories[j]
+	sort.Slice(contracts, func(i, j int) bool {
+		a := contracts[i]
+		b := contracts[j]
 		if a.ImplPackage == b.ImplPackage {
 			if a.Ident == "Repository" {
 				return true
@@ -467,9 +474,9 @@ func generateRepositoryStubFile(
 	})
 
 	mocked := map[string]bool{}
-	for _, repositories := range groupByPackage(repositories) {
-		repository := repositories[0]
-		src := repository.PackagePath
+	for _, contractGroup := range groupByPackage(contracts) {
+		contract := contractGroup[0]
+		src := contract.PackagePath
 		if _, done := mocked[src]; done {
 			continue
 		}
@@ -479,28 +486,35 @@ func generateRepositoryStubFile(
 			return "", fmt.Errorf("failed to get relative path: %w", err)
 		}
 		mocked[src] = true
-		dst := path.Join(repository.ImplPackagePath, "mocks.go")
+		dst := path.Join(contract.ImplPackagePath, "mocks.go")
 		dst, err = filepath.Rel(fImpl, dst)
 		if err != nil {
 			return "", fmt.Errorf("failed to get relative path: %w", err)
 		}
-		repositoryIdents := make([]string, len(repositories))
-		for i, repository := range repositories {
-			repositoryIdents[i] = repository.Ident
+		contractIdents := make([]string, len(contractGroup))
+		for i, contract := range contractGroup {
+			contractIdents[i] = contract.Ident
 		}
-		slices.Sort(repositoryIdents)
+		slices.Sort(contractIdents)
 		templateData.MockDirectives = append(templateData.MockDirectives, MockDirective{
 			Src:          src,
 			Dst:          dst,
-			ImplPackage:  repository.ImplPackage,
-			Repositories: repositoryIdents,
+			ImplPackage:  contract.ImplPackage,
+			Contracts: contractIdents,
 		})
 	}
 	sort.Slice(templateData.MockDirectives, func(i, j int) bool {
 		return templateData.MockDirectives[i].ImplPackage < templateData.MockDirectives[j].ImplPackage
 	})
 
-	templateData.Repositories = repositories
+	templateData.Contracts = contracts
+	templateData.Suffix = suffix
+	// Variable name is plural of suffix (e.g., Repository -> Repositories, Service -> Services)
+	templateData.VariableName = suffix + "s"
+	if strings.HasSuffix(suffix, "y") {
+		// Repository -> Repositories
+		templateData.VariableName = suffix[:len(suffix)-1] + "ies"
+	}
 	pkgImport, pkgAlias, err := loadLocalPackage(fsys, nil, packagePath)
 	if err != nil {
 		return "", err
@@ -516,7 +530,7 @@ func generateRepositoryStubFile(
 		false,
 		true,
 		nil,
-		repositories...,
+		contracts...,
 	)
 	if err != nil {
 		return "", err
@@ -530,19 +544,20 @@ func generateRepositoryStubFile(
 // This file will be automatically regenerated based on the API.
 package {{ .Package }}
 {{ range .MockDirectives -}}
-//go:generate moq -out={{ .Dst }} -pkg={{ .ImplPackage }} -rm -skip-ensure {{ .Src }} {{ range .Repositories }}{{.}} {{ end }}
+//go:generate moq -out={{ .Dst }} -pkg={{ .ImplPackage }} -rm -skip-ensure {{ .Src }} {{ range .Contracts }}{{.}} {{ end }}
 {{ end -}}
 
-{{ range .Imports }}
-import {{ .Name }} "{{ .Path }}"
-{{- end }}
 import (
+{{- range .Imports }}
+	{{ if .Name }}{{ .Name }} {{ end }}"{{ .Path }}"
+{{- end }}
+
 	_ "github.com/Southclaws/fault"
 	_ "github.com/Southclaws/fault/fmsg"
 )
 
-var RepositoryFactories = []any{
-{{ range .Repositories -}}
+var {{ .Suffix }}Factories = []any{
+{{ range .Contracts -}}
   {{ if not .Generics -}} 
   {{ .ImplPackage }}.New{{ .Ident }},
   {{- end }}
@@ -555,19 +570,20 @@ var RepositoryFactories = []any{
 // This file will be automatically regenerated based on the API.
 package {{ .Package }}
 {{ range .MockDirectives -}}
-//go:generate moq -out={{ .Dst }} -pkg={{ .ImplPackage }} -rm -skip-ensure {{ .Src }} {{ range .Repositories }}{{.}} {{ end }}
+//go:generate moq -out={{ .Dst }} -pkg={{ .ImplPackage }} -rm -skip-ensure {{ .Src }} {{ range .Contracts }}{{.}} {{ end }}
 {{ end -}}
 
-{{ range .Imports }}
-import {{ .Name }} "{{ .Path }}"
-{{- end }}
 import (
+{{- range .Imports }}
+	{{ if .Name }}{{ .Name }} {{ end }}"{{ .Path }}"
+{{- end }}
+
 	_ "github.com/Southclaws/fault"
 	_ "github.com/Southclaws/fault/fmsg"
 )
 
-var Repositories = fx.Options(
-{{ range .Repositories -}}
+var {{ .VariableName }} = fx.Options(
+{{ range .Contracts -}}
   {{ if not .Generics -}} 
   {{ .ImplPackage }}.{{ .QualifyString "Options" }},
   {{- end }}
@@ -596,7 +612,7 @@ func collectImports(
 	astFile *ast.File,
 	importAPI, importImpl bool,
 	extraImports []Import,
-	repositories ...*RepositoryImpl,
+	contracts ...*ContractImpl,
 ) (allImports []Import, _ error) {
 	usedImports := make(map[string]bool)
 	if astFile != nil {
@@ -611,13 +627,13 @@ func collectImports(
 	}
 	allImports = append(allImports, Import{Name: "", Path: diPkgPath})
 	allImports = append(allImports, extraImports...)
-	importRepositories := func(importAPI, importImpl bool) error {
-		for _, repository := range repositories {
+	importContracts := func(importAPI, importImpl bool) error {
+		for _, contract := range contracts {
 			var rPkgPath string
 			if importAPI {
-				rPkgPath = repository.PackagePath
+				rPkgPath = contract.PackagePath
 			} else if importImpl {
-				rPkgPath = repository.ImplPackagePath
+				rPkgPath = contract.ImplPackagePath
 			}
 			rImport, rAlias, err := loadLocalPackage(
 				fsys,
@@ -630,10 +646,14 @@ func collectImports(
 			// Check if there's a local package alias
 			if astFile != nil && rAlias != "" {
 				if importAPI {
-					repository.Package = rAlias
+					contract.Package = rAlias
 				} else if importImpl {
-					repository.ImplPackage = rAlias
+					contract.ImplPackage = rAlias
 				}
+			}
+			// For implementation packages, ensure we have an alias
+			if importImpl && rAlias == "" {
+				rAlias = contract.ImplPackage
 			}
 			allImports = append(
 				allImports,
@@ -645,16 +665,16 @@ func collectImports(
 		}
 		return nil
 	}
-	if err := importRepositories(importAPI, false); err != nil {
+	if err := importContracts(importAPI, false); err != nil {
 		return nil, err
 	}
-	if err := importRepositories(false, importImpl); err != nil {
+	if err := importContracts(false, importImpl); err != nil {
 		return nil, err
 	}
 
-	for _, repository := range repositories {
-		allImports = append(allImports, repository.Imports...)
-		for _, newMethod := range repository.NewMethods() {
+	for _, contract := range contracts {
+		allImports = append(allImports, contract.Imports...)
+		for _, newMethod := range contract.NewMethods() {
 			if newMethod.Params.HasCtx() {
 				allImports = append(
 					allImports,

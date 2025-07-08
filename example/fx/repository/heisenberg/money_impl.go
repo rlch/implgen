@@ -1,10 +1,9 @@
-// This file will be automatically regenerated based on the API. Any repository implementations
+// This file will be automatically regenerated based on the API. Any contract implementations
 // will be copied through when generating and new methods will be added to the end.
 package heisenbergimpl
 
 import (
 	"context"
-
 	"example/api/heisenberg"
 
 	"github.com/Southclaws/fault"

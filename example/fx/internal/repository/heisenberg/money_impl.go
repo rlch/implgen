@@ -1,13 +1,13 @@
-// This file will be automatically regenerated based on the API. Any repository implementations
+// This file will be automatically regenerated based on the API. Any contract implementations
 // will be copied through when generating and new methods will be added to the end.
 package heisenbergimpl
 
 import (
 	"context"
-
 	"example/api/heisenberg"
 
-	"github.com/rotisserie/eris"
+	"github.com/Southclaws/fault"
+	"github.com/Southclaws/fault/fmsg"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
 	"go.uber.org/fx"
@@ -38,7 +38,7 @@ func (r *moneyRepositoryImpl) Launder(ctx context.Context, amount *float64) (_ *
 	ctx, span := otel.GetTracerProvider().Tracer("heisenberg").Start(ctx, "Money.Launder")
 	defer func() {
 		if err != nil {
-			err = eris.Wrap(err, "heisenberg.MoneyRepository.Launder")
+			err = fault.Wrap(err, fmsg.With("heisenberg.MoneyRepository.Launder"))
 			span.SetStatus(codes.Error, "")
 			span.RecordError(err)
 		}
@@ -52,7 +52,7 @@ func (r *moneyRepositoryImpl) ProcessPayments(ctx context.Context, amounts []flo
 	ctx, span := otel.GetTracerProvider().Tracer("heisenberg").Start(ctx, "Money.ProcessPayments")
 	defer func() {
 		if err != nil {
-			err = eris.Wrap(err, "heisenberg.MoneyRepository.ProcessPayments")
+			err = fault.Wrap(err, fmsg.With("heisenberg.MoneyRepository.ProcessPayments"))
 			span.SetStatus(codes.Error, "")
 			span.RecordError(err)
 		}

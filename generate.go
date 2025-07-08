@@ -7,6 +7,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 
 	"github.com/gobwas/glob"
 	"github.com/urfave/cli/v3"
@@ -23,18 +24,30 @@ import (
 //
 // The function preserves existing implementations and only generates missing methods.
 func generate(ctx context.Context, cmd *cli.Command) error {
+	slog.Info(
+		"Starting generation",
+		slog.String("root", fRoot),
+		slog.String("api_root", fApi),
+		slog.String("impl_root", fImpl),
+		slog.String("suffix", fSuffix),
+	)
 	fsys := os.DirFS(fRoot)
 	slog.Debug(
 		"Crawling API directory",
 		slog.String("root", fRoot),
 		slog.String("api_root", fApi),
 		slog.String("impl_root", fImpl),
+		slog.String("suffix", fSuffix),
 	)
 	apiFiles, err := crawlAPI(fsys, fApi)
 	if err != nil {
 		return fmt.Errorf("failed to walk API directory: %w", err)
 	}
-	allRepImpls := []*RepositoryImpl{}
+	slog.Info(
+		"Found API files",
+		slog.Int("package_count", len(apiFiles)),
+	)
+	allContractImpls := []*ContractImpl{}
 	focusGlobs := make([]glob.Glob, len(fFocus))
 	for i, focus := range fFocus {
 		glob, err := glob.Compile(focus)
@@ -63,21 +76,27 @@ func generate(ctx context.Context, cmd *cli.Command) error {
 			)
 			continue
 		}
-		repos, err := parseRepositoriesForPackage(
+		contracts, err := parseContractsForPackage(
 			fsys,
 			apiPackagePath,
 			packageFiles,
+			fSuffix,
 		)
 		if err != nil {
-			return fmt.Errorf("failed to parse repositories in %s: %w", apiPackagePath, err)
+			return fmt.Errorf("failed to parse contracts in %s: %w", apiPackagePath, err)
 		}
-		if len(repos) == 0 {
+		if len(contracts) == 0 {
+			slog.Info(
+				"No contracts found in package",
+				slog.String("api_path", apiPackagePath),
+				slog.String("suffix", fSuffix),
+			)
 			continue
 		}
-		slog.Debug(
-			"Parsed repositories",
+		slog.Info(
+			"Parsed contracts",
 			slog.String("api_path", apiPackagePath),
-			slog.Int("count", len(repos)),
+			slog.Int("count", len(contracts)),
 		)
 		implPackagePath, err := computeImplPackagePath(
 			fApi,
@@ -91,21 +110,27 @@ func generate(ctx context.Context, cmd *cli.Command) error {
 				err,
 			)
 		}
-		repImpls, err := parseRepositoryImpls(
+		contractImpls, err := parseContractImpls(
 			fsys,
 			implPackagePath,
-			repos,
+			contracts,
 		)
 		if err != nil {
-			return fmt.Errorf("failed to parse repository implementations: %w", err)
+			return fmt.Errorf("failed to parse contract implementations: %w", err)
 		}
-		allRepImpls = append(allRepImpls, repImpls...)
-		for filename, impls := range groupByImplFilename(repImpls) {
+		allContractImpls = append(allContractImpls, contractImpls...)
+		for filename, impls := range groupByImplFilename(contractImpls) {
 			implPath := path.Join(implPackagePath, filename)
 			fullImplPath := path.Join(fRoot, implPath)
 			_, statErr := os.Stat(fullImplPath)
 			exists := statErr == nil
-			data, err := generateRepositoryImplsForFile(fsys, implPath, impls)
+			slog.Info(
+				"Generating implementation file",
+				slog.String("filename", filename),
+				slog.String("impl_path", implPath),
+				slog.Bool("exists", exists),
+			)
+			data, err := generateContractImplsForFile(fsys, implPath, impls)
 			if err != nil {
 				return fmt.Errorf("failed to generate implementation file: %w", err)
 			}
@@ -134,6 +159,10 @@ func generate(ctx context.Context, cmd *cli.Command) error {
 				nNewMethods += len(impl.NewMethods())
 			}
 			if nNewImpls == 0 && nNewMethods == 0 {
+				slog.Info(
+					"No new methods or implementations to generate",
+					slog.String("impl_path", implPath),
+				)
 				continue
 			}
 			var logMsg string
@@ -142,7 +171,7 @@ func generate(ctx context.Context, cmd *cli.Command) error {
 			} else {
 				logMsg = "Created implementation file"
 			}
-			slog.Debug(
+			slog.Info(
 				logMsg,
 				slog.String("api_path", apiPackagePath),
 				slog.String("impl_path", implPath),
@@ -152,45 +181,47 @@ func generate(ctx context.Context, cmd *cli.Command) error {
 		}
 	}
 	if len(fFocus) == 0 {
-		stubSrc, err := generateRepositoryStubFile(fsys, fImpl, allRepImpls...)
+		stubSrc, err := generateContractStubFile(fsys, fImpl, fSuffix, allContractImpls...)
 		if err != nil {
-			return fmt.Errorf("failed to generate repository stub file: %w", err)
+			return fmt.Errorf("failed to generate %s stub file: %w", strings.ToLower(fSuffix), err)
 		}
+		stubFileName := strings.ToLower(fSuffix) + ".go"
+		stubFullPath := path.Join(fRoot, fImpl, stubFileName)
 		if err := os.WriteFile(
-			path.Join(fRoot, fImpl, "repositories.go"),
+			stubFullPath,
 			[]byte(stubSrc),
 			0644,
 		); err != nil {
-			return fmt.Errorf("failed to write repository stub file: %w", err)
+			return fmt.Errorf("failed to write %s stub file: %w", fSuffix, err)
 		}
-		slog.Debug("Generated repository stub file")
+		slog.Info("Generated stub file", slog.String("path", path.Join(fImpl, stubFileName)))
 	} else {
 		slog.Debug("Focus provided, skipping stub generation")
 	}
 	return nil
 }
 
-// groupByPackage groups repository implementations by their API package name.
-// This is used to organize repositories for mock generation directives.
-func groupByPackage(repositories []*RepositoryImpl) map[string][]*RepositoryImpl {
-	grouped := make(map[string][]*RepositoryImpl)
-	for _, repository := range repositories {
-		grouped[repository.Package] = append(
-			grouped[repository.Package],
-			repository,
+// groupByPackage groups contract implementations by their API package name.
+// This is used to organize contracts for mock generation directives.
+func groupByPackage(contracts []*ContractImpl) map[string][]*ContractImpl {
+	grouped := make(map[string][]*ContractImpl)
+	for _, contract := range contracts {
+		grouped[contract.Package] = append(
+			grouped[contract.Package],
+			contract,
 		)
 	}
 	return grouped
 }
 
-// groupByImplFilename groups repository implementations by their implementation filename.
-// This ensures that repositories that should be in the same file are processed together.
-func groupByImplFilename(repositories []*RepositoryImpl) map[string][]*RepositoryImpl {
-	grouped := make(map[string][]*RepositoryImpl)
-	for _, repository := range repositories {
-		grouped[repository.ImplFilename] = append(
-			grouped[repository.ImplFilename],
-			repository,
+// groupByImplFilename groups contract implementations by their implementation filename.
+// This ensures that contracts that should be in the same file are processed together.
+func groupByImplFilename(contracts []*ContractImpl) map[string][]*ContractImpl {
+	grouped := make(map[string][]*ContractImpl)
+	for _, contract := range contracts {
+		grouped[contract.ImplFilename] = append(
+			grouped[contract.ImplFilename],
+			contract,
 		)
 	}
 	return grouped

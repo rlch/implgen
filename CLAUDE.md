@@ -107,3 +107,4 @@ task mod-download
 ## Claude Memories
 
 - You only need to use GOFLAGS=-mod=mod with go commands.
+- Avoid building. Run directly with task run
