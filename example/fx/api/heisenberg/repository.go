@@ -26,6 +26,9 @@ type ChemistryRepository interface {
 
 	// Multiple return values
 	OptimizeFormula(formula Formula) (Formula, []string, error)
+	
+	// New method to test generation
+	TestMethod(ctx context.Context, input string) (string, error)
 }
 
 // MoneyRepository demonstrates different types

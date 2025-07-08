@@ -23,17 +23,29 @@ import (
 //
 // The function preserves existing implementations and only generates missing methods.
 func generate(ctx context.Context, cmd *cli.Command) error {
+	slog.Info(
+		"Starting generation",
+		slog.String("root", fRoot),
+		slog.String("api_root", fApi),
+		slog.String("impl_root", fImpl),
+		slog.String("suffix", fSuffix),
+	)
 	fsys := os.DirFS(fRoot)
 	slog.Debug(
 		"Crawling API directory",
 		slog.String("root", fRoot),
 		slog.String("api_root", fApi),
 		slog.String("impl_root", fImpl),
+		slog.String("suffix", fSuffix),
 	)
 	apiFiles, err := crawlAPI(fsys, fApi)
 	if err != nil {
 		return fmt.Errorf("failed to walk API directory: %w", err)
 	}
+	slog.Info(
+		"Found API files",
+		slog.Int("package_count", len(apiFiles)),
+	)
 	allContractImpls := []*ContractImpl{}
 	focusGlobs := make([]glob.Glob, len(fFocus))
 	for i, focus := range fFocus {
@@ -73,9 +85,14 @@ func generate(ctx context.Context, cmd *cli.Command) error {
 			return fmt.Errorf("failed to parse contracts in %s: %w", apiPackagePath, err)
 		}
 		if len(contracts) == 0 {
+			slog.Info(
+				"No contracts found in package",
+				slog.String("api_path", apiPackagePath),
+				slog.String("suffix", fSuffix),
+			)
 			continue
 		}
-		slog.Debug(
+		slog.Info(
 			"Parsed contracts",
 			slog.String("api_path", apiPackagePath),
 			slog.Int("count", len(contracts)),
@@ -106,7 +123,13 @@ func generate(ctx context.Context, cmd *cli.Command) error {
 			fullImplPath := path.Join(fRoot, implPath)
 			_, statErr := os.Stat(fullImplPath)
 			exists := statErr == nil
-			data, err := generateRepositoryImplsForFile(fsys, implPath, impls)
+			slog.Info(
+				"Generating implementation file",
+				slog.String("filename", filename),
+				slog.String("impl_path", implPath),
+				slog.Bool("exists", exists),
+			)
+			data, err := generateContractImplsForFile(fsys, implPath, impls)
 			if err != nil {
 				return fmt.Errorf("failed to generate implementation file: %w", err)
 			}
@@ -135,6 +158,10 @@ func generate(ctx context.Context, cmd *cli.Command) error {
 				nNewMethods += len(impl.NewMethods())
 			}
 			if nNewImpls == 0 && nNewMethods == 0 {
+				slog.Info(
+					"No new methods or implementations to generate",
+					slog.String("impl_path", implPath),
+				)
 				continue
 			}
 			var logMsg string
@@ -143,7 +170,7 @@ func generate(ctx context.Context, cmd *cli.Command) error {
 			} else {
 				logMsg = "Created implementation file"
 			}
-			slog.Debug(
+			slog.Info(
 				logMsg,
 				slog.String("api_path", apiPackagePath),
 				slog.String("impl_path", implPath),
@@ -153,7 +180,7 @@ func generate(ctx context.Context, cmd *cli.Command) error {
 		}
 	}
 	if len(fFocus) == 0 {
-		stubSrc, err := generateRepositoryStubFile(fsys, fImpl, allContractImpls...)
+		stubSrc, err := generateContractStubFile(fsys, fImpl, allContractImpls...)
 		if err != nil {
 			return fmt.Errorf("failed to generate repository stub file: %w", err)
 		}
