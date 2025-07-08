@@ -15,16 +15,8 @@ A flexible Go code generator that automatically creates implementation boilerpla
 
 ## Installation
 
-### Prerequisites
-
-- Go 1.23 or later
-
-### Build from Source
-
 ```bash
-git clone https://github.com/rlch/implgen
-cd implgen
-go build -o implgen .
+go install github.com/rlch/implgen@latest
 ```
 
 ## Quick Start
