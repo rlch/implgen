@@ -1,19 +1,17 @@
 # implgen
 
-A Go code generator that automatically creates implementation boilerplate for Go interfaces following the Repository pattern.
+A flexible Go code generator that automatically creates implementation boilerplate for Go interfaces with configurable patterns.
 
 ## Overview
 
-`implgen` streamlines the development of Go applications by automatically generating implementation files for interfaces. It parses interface definitions (ending with "Repository") from an API directory and creates corresponding implementation files with proper dependency injection, observability, and error handling.
+`implgen` streamlines the development of Go applications by automatically generating implementation files for interfaces. It parses interface definitions with configurable suffixes (Repository, Service, Handler, etc.) from an API directory and creates corresponding implementation files with proper dependency injection, observability, and error handling.
 
 ## Features
 
-- 🔍 **Smart Parsing**: Uses tree-sitter to accurately parse Go interfaces
-- 🏗️ **Dependency Injection**: Supports both Uber's fx and Google's dig frameworks
-- 📊 **Observability**: Automatically adds OpenTelemetry tracing for methods with context
-- 🚨 **Error Handling**: Integrates eris for structured error wrapping
-- 🔄 **Incremental Updates**: Preserves existing implementations while adding missing methods
-- 🎯 **Focused Generation**: Target specific packages with glob patterns
+- 🎯 **Configurable Patterns**: Support for any interface suffix (Repository, Service, Handler, etc.)
+- 🏗️ **Dependency Injection**: Supports both fx and dig frameworks
+- 📊 **Observability**: Automatic OpenTelemetry tracing for context methods
+- 🔄 **Incremental Updates**: Preserves existing implementations, adds missing methods
 
 ## Installation
 
@@ -39,16 +37,22 @@ Organize your Go project with API interfaces and implementation directories:
 your-project/
 ├── api/
 │   └── user/
-│       └── repository.go      # Interface definitions
-├── internal/
+│       ├── repository.go      # Repository interfaces
+│       └── service.go         # Service interfaces
+├── repository/                # Repository implementations
+│   ├── repository.go         # fx.Options for repositories
 │   └── user/
-│       └── repository_impl.go # Generated implementations
+│       └── user_repository_impl.go
+├── service/                   # Service implementations
+│   ├── service.go            # fx.Options for services
+│   └── user/
+│       └── user_service_impl.go
 └── main.go
 ```
 
-### 2. Define Your Interface
+### 2. Define Your Interfaces
 
-Create an interface ending with "Repository" in your API directory:
+Create interfaces with configurable suffixes in your API directory:
 
 ```go
 // api/user/repository.go
@@ -56,7 +60,7 @@ package user
 
 import "context"
 
-type Repository interface {
+type UserRepository interface {
     Create(ctx context.Context, user User) error
     GetByID(ctx context.Context, id string) (User, error)
     Update(ctx context.Context, user User) error
@@ -64,13 +68,30 @@ type Repository interface {
 }
 ```
 
-### 3. Generate Implementation
+```go
+// api/user/service.go
+package user
 
-```bash
-./implgen generate
+import "context"
+
+type UserService interface {
+    Register(ctx context.Context, user User) error
+    Authenticate(ctx context.Context, email, password string) (User, error)
+    SendWelcomeEmail(ctx context.Context, userID string) error
+}
 ```
 
-This creates `internal/user/repository_impl.go` with:
+### 3. Generate Implementations
+
+```bash
+# Generate repository implementations
+./implgen generate --suffix Repository --api api --impl repository
+
+# Generate service implementations  
+./implgen generate --suffix Service --api api --impl service
+```
+
+This creates separate implementation directories with:
 
 - Proper package structure and imports
 - Dependency injection setup
@@ -81,45 +102,63 @@ This creates `internal/user/repository_impl.go` with:
 ### 4. Generated Output
 
 ```go
-// internal/user/repository_impl.go
+// repository/user/user_repository_impl.go
 package userimpl
 
 import (
     "context"
     "example/api/user"
-    "github.com/rotisserie/eris"
+    "github.com/Southclaws/fault"
+    "github.com/Southclaws/fault/fmsg"
     "go.opentelemetry.io/otel"
     "go.opentelemetry.io/otel/codes"
     "go.uber.org/fx"
 )
 
-type Dependencies struct {
+type UserDependencies struct {
     fx.In
     // Add dependencies here
 }
 
-var Options = fx.Options(fx.Provide(NewRepository))
+var UserOptions = fx.Options(fx.Provide(NewUserRepository))
 
-func NewRepository(deps Dependencies) user.Repository {
-    return &repositoryImpl{Dependencies: deps}
+func NewUserRepository(deps UserDependencies) user.UserRepository {
+    return &userRepositoryImpl{UserDependencies: deps}
 }
 
-type repositoryImpl struct {
-    Dependencies
+type userRepositoryImpl struct {
+    UserDependencies
 }
 
-func (r *repositoryImpl) Create(ctx context.Context, user user.User) (err error) {
-    ctx, span := otel.GetTracerProvider().Tracer("user").Start(ctx, "Repository.Create")
+func (r *userRepositoryImpl) Create(ctx context.Context, user user.User) (err error) {
+    ctx, span := otel.GetTracerProvider().Tracer("user").Start(ctx, "User.Create")
     defer func() {
         if err != nil {
-            err = eris.Wrap(err, "user.Repository.Create")
+            err = fault.Wrap(err, fmsg.With("user.UserRepository.Create"))
             span.SetStatus(codes.Error, "")
             span.RecordError(err)
         }
         span.End()
     }()
-    panic("TODO: implement user.Repository.Create")
+    panic("TODO: implement user.UserRepository.Create")
 }
+```
+
+### 5. Recommended Setup with gen.go
+
+Create a `gen.go` file for easy generation:
+
+```go
+package main
+
+//go:generate go run github.com/rlch/implgen generate --suffix Repository --api api --impl repository
+//go:generate go run github.com/rlch/implgen generate --suffix Service --api api --impl service
+```
+
+Then run:
+
+```bash
+go generate
 ```
 
 ## CLI Usage
@@ -127,21 +166,30 @@ func (r *repositoryImpl) Create(ctx context.Context, user user.User) (err error)
 ### Basic Commands
 
 ```bash
-# Generate all implementations
+# Generate repository implementations (default behavior)
 ./implgen generate
 
+# Generate with specific suffix and directory
+./implgen generate --suffix Repository --api api --impl repository
+
+# Generate service implementations
+./implgen generate --suffix Service --api api --impl service
+
+# Generate handler implementations
+./implgen generate --suffix Handler --api api --impl handler
+
 # Use custom directories
-./implgen generate --root . --api services --impl implementations
+./implgen generate --suffix Repository --root . --api services --impl implementations
 
 # Focus on specific packages
-./implgen generate --focus "user/**"
-./implgen generate --focus "user/**" --focus "order/**"
+./implgen generate --suffix Repository --impl repository --focus "user/**"
+./implgen generate --suffix Service --impl service --focus "user/**" --focus "order/**"
 
 # Use dig instead of fx for dependency injection
-./implgen generate --dig
+./implgen generate --suffix Repository --impl repository --dig
 
 # Enable verbose logging
-./implgen --verbose generate
+./implgen --verbose generate --suffix Service --impl service
 ```
 
 ### Command Reference
@@ -151,47 +199,19 @@ func (r *repositoryImpl) Create(ctx context.Context, user user.User) (err error)
 | `--root`    | Root directory for the project                 | `.`            |
 | `--api`     | API directory relative to root                 | `api`          |
 | `--impl`    | Implementation directory relative to root      | `internal`     |
+| `--suffix`  | Interface suffix to detect (Repository, Service, etc.) | `Repository` |
 | `--focus`   | Target specific packages with glob patterns    | (all packages) |
 | `--dig`     | Use dig instead of fx for dependency injection | `false`        |
 | `--verbose` | Enable verbose logging                         | `false`        |
 
-## Architecture
-
-```
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   API Layer     │    │   Parser Engine  │    │ Code Generator  │
-│                 │───▶│                  │───▶│                 │
-│ Interface Defs  │    │  Tree-sitter     │    │ Template Engine │
-└─────────────────┘    └──────────────────┘    └─────────────────┘
-                                                         │
-                                                         ▼
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│ Dependency      │◀───│  File System     │◀───│ Implementation  │
-│ Injection       │    │                  │    │     Layer       │
-│ (fx/dig)        │    │ Path Management  │    │                 │
-└─────────────────┘    └──────────────────┘    └─────────────────┘
-```
-
-### Core Components
-
-1. **Parser**: Extracts interface definitions using go-tree-sitter
-2. **Generator**: Creates implementation files with proper structure
-3. **File System**: Manages paths and module detection
-4. **CLI**: Orchestrates the generation process
-
-### Key Conventions
-
-- **Interface Naming**: Must end with "Repository"
-- **Implementation Naming**: `repositoryImpl` (lowercase first letter + "Impl")
-- **File Naming**: `snake_case_impl.go`
-- **Package Naming**: API package name + "impl" suffix
-
 ## Examples
 
-See the `example/` directory for complete working examples:
+See the `example/fx/` directory for a complete working example demonstrating:
 
-- `example/fx/`: Using Uber's fx for dependency injection
-- `example/dig/`: Using Google's dig for dependency injection
+- Repository and Service patterns in separate directories
+- Multiple interfaces per package
+- Proper fx dependency injection setup
+- Generated implementations with tracing and error handling
 
 ## Troubleshooting
 
@@ -199,26 +219,29 @@ See the `example/` directory for complete working examples:
 
 **Interface not detected**
 
-- Ensure interface name ends with "Repository"
+- Ensure interface name ends with the specified suffix (default: "Repository")
 - Check that the file is in the correct API directory
 - Verify Go syntax is valid
+- Use `--verbose` to see what files are being processed
 
 **Build errors with tree-sitter**
 
 - Ensure you have a C compiler installed
+- Use `GOFLAGS=-mod=mod` when building (required for tree-sitter)
 - Tree-sitter dependencies are vendored in the project
 
 **Generated code has import issues**
 
 - Run `go mod tidy` after generation
 - Ensure your module path is correctly set in go.mod
+- Check that API interfaces are in proper Go packages
 
 ### Debug Mode
 
 Enable verbose logging to see what implgen is doing:
 
 ```bash
-./implgen --verbose generate
+./implgen --verbose generate --suffix Repository --impl repository
 ```
 
 ## Development
