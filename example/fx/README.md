@@ -76,11 +76,30 @@ type PattyService interface {
 
 ## Usage
 
+### CLI Options
+
+```bash
+# Basic generation command
+./implgen generate [OPTIONS]
+
+# Available options:
+#   --root value       Root directory (default: ".")
+#   --api value        API directory relative to root (default: "api")
+#   --impl value       Implementation directory relative to root (default: "internal")
+#   --suffix value     Interface suffix to detect (default: "Repository")
+#   --focus value      Focus on specific packages using glob patterns
+#   --dig              Use dig instead of fx for dependency injection
+#   --verbose, -v      Enable verbose logging
+```
+
 ### Generate Repository Implementations
 
 ```bash
 # Generate all repository implementations in the repository/ directory
 ./implgen generate --suffix Repository --api api --impl repository
+
+# With verbose output
+./implgen generate --suffix Repository --api api --impl repository --verbose
 
 # This generates:
 # - repository/repository.go (fx.Options for all repositories)
@@ -96,11 +115,21 @@ type PattyService interface {
 # Generate all service implementations in the service/ directory
 ./implgen generate --suffix Service --api api --impl service
 
+# Focus on specific packages only
+./implgen generate --suffix Service --api api --impl service --focus "heisenberg/**"
+
 # This generates:
 # - service/service.go (fx.Options for all services)
 # - service/heisenberg/notification_impl.go
 # - service/spongebob/patty_impl.go
 # - service/spongebob/fry_impl.go
+```
+
+### Using Dig Instead of FX
+
+```bash
+# Generate with dig dependency injection
+./implgen generate --suffix Repository --api api --impl repository --dig
 ```
 
 ## Generated Features
@@ -158,6 +187,14 @@ package main
 
 //go:generate go run github.com/rlch/implgen generate --suffix Repository --api api --impl repository
 //go:generate go run github.com/rlch/implgen generate --suffix Service --api api --impl service
+
+// Alternative: Use local binary (if you have implgen installed)
+//go:generate implgen generate --suffix Repository --api api --impl repository
+//go:generate implgen generate --suffix Service --api api --impl service
+
+// With additional options:
+//go:generate go run github.com/rlch/implgen generate --suffix Repository --api api --impl repository --verbose
+//go:generate go run github.com/rlch/implgen generate --suffix Service --api api --impl service --dig
 ```
 
 Then simply run:
@@ -167,3 +204,19 @@ go generate
 ```
 
 This will generate both repository and service implementations in one command.
+
+### Advanced Usage Examples
+
+```bash
+# Generate only specific packages
+./implgen generate --suffix Repository --api api --impl repository --focus "heisenberg/**"
+
+# Use dig instead of fx
+./implgen generate --suffix Service --api api --impl service --dig
+
+# Generate Handler implementations (works with any suffix)
+./implgen generate --suffix Handler --api api --impl handler
+
+# Specify custom root directory
+./implgen generate --suffix Repository --root ./my-project --api interfaces --impl implementations
+```
