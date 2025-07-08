@@ -2,21 +2,7 @@ package heisenberg
 
 import (
 	"context"
-	"time"
 )
-
-// Simple types for testing
-type Formula struct {
-	Name   string
-	Purity float64
-}
-
-type Batch struct {
-	ID       string
-	Formula  Formula
-	Quantity float64
-	CookedAt time.Time
-}
 
 // ChemistryRepository demonstrates basic patterns
 type ChemistryRepository interface {
@@ -26,7 +12,7 @@ type ChemistryRepository interface {
 
 	// Multiple return values
 	OptimizeFormula(formula Formula) (Formula, []string, error)
-	
+
 	// New method to test generation
 	TestMethod(ctx context.Context, input string) (string, error)
 }
@@ -39,4 +25,3 @@ type MoneyRepository interface {
 	// Slices
 	ProcessPayments(ctx context.Context, amounts []float64) ([]string, error)
 }
-
