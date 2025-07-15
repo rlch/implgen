@@ -54,6 +54,53 @@ func TestParseRepositoriesForPackage(t *testing.T) {
 				},
 			},
 		},
+		{
+			"methods with implgen:ignore comments should be skipped",
+			map[string]string{
+				"api/one.go": `
+				package api
+
+				// This is a regular comment
+				type ARepository interface {
+					// Method comment
+					Method()
+				}`,
+				"api/two.go": `
+				package api
+
+				//implgen:ignore
+				type BRepository interface {
+					//implgen:ignore  
+					IgnoredMethod()
+					RegularMethod()
+				}`,
+				"api/three.go": `
+       			package api
+
+				type CRepository interface {
+					//implgen:ignore  
+					IgnoredMethod()
+					RegularMethod()
+				}
+        `,
+			},
+			"api",
+			[]string{"one.go", "two.go", "three.go"},
+			[]*Repository{
+				{
+					Package:  "api",
+					Filename: "one.go",
+					Ident:    "ARepository",
+					Methods:  []*Method{{Ident: "Method"}},
+				},
+				{
+					Package:  "api",
+					Filename: "three.go",
+					Ident:    "CRepository",
+					Methods:  []*Method{{Ident: "IgnoredMethod", Ignored: true}, {Ident: "RegularMethod"}},
+				},
+			},
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			require := require.New(t)
@@ -621,6 +668,38 @@ func TestParseRepositories(t *testing.T) {
 					Methods: []*Method{
 						{Ident: "Method", Ignored: true, Returns: []*Param{{Type: "error"}}},
 						{Ident: "AnotherMethod", Ignored: true, Returns: []*Param{{Type: "string"}}},
+					},
+				},
+			},
+		},
+		{
+			"//implgen:ignore on embed interface",
+			`
+			package main
+
+			//implgen:ignore
+			type BaseRepository interface {
+				Base() error
+			}
+
+			type UserRepository interface {
+				BaseRepository
+				GetUser() error
+			}
+      `,
+			[]*Repository{
+				{
+					Package: "main",
+					Ident:   "BaseRepository",
+					Ignored: true,
+					Methods: []*Method{{Ident: "Base", Returns: []*Param{{Type: "error"}}}},
+				},
+				{
+					Package: "main",
+					Ident:   "UserRepository",
+					Embeds:  []string{"BaseRepository"},
+					Methods: []*Method{
+						{Ident: "GetUser", Returns: []*Param{{Type: "error"}}},
 					},
 				},
 			},

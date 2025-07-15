@@ -162,6 +162,14 @@ func parseContractsForPackage(
 		}
 		contracts = append(contracts, packageContracts...)
 	}
+
+	filtered := contracts[:0]
+	for _, c := range contracts {
+		if !c.Ignored {
+			filtered = append(filtered, c)
+		}
+	}
+	contracts = filtered
 	return contracts, nil
 }
 
@@ -190,6 +198,9 @@ func resolveEmbeddedInterfacesForContract(contract *Contract, contractMap map[st
 	// Process each embedded interface
 	for _, embedName := range contract.Embeds {
 		if embeddedContract, exists := contractMap[embedName]; exists {
+			if embeddedContract.Ignored {
+				continue
+			}
 			// First resolve the embedded contract's own embedded interfaces
 			resolveEmbeddedInterfacesForContract(embeddedContract, contractMap, visited)
 			
