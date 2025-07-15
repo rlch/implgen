@@ -34,6 +34,16 @@ func TestNewMethods(t *testing.T) {
 			[]*Method{{Ident: "A"}},
 		},
 		{
+			"ignore method",
+			RepositoryImpl{
+				Repository: Repository{
+					Methods: []*Method{{Ident: "A", Ignored: true}},
+				},
+				ImplMethods: []string{"B"},
+			},
+			[]*Method{},
+		},
+		{
 			"method args/returns are qualified with package name",
 			RepositoryImpl{
 				Repository: Repository{

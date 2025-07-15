@@ -41,6 +41,9 @@ func (c ContractImpl) ImplTestPackage() string {
 func (c ContractImpl) NewMethods() []*Method {
 	methods := []*Method{}
 	for _, method := range c.Methods {
+		if method.Ignored {
+			continue
+		}
 		existing := slices.Contains(c.ImplMethods, method.Ident)
 		if existing {
 			continue
